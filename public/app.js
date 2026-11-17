@@ -1073,7 +1073,8 @@ async function adminHTML() {
   adminTournaments = d.tournaments;
   let resets = [];
   try { resets = (await api('/api/admin/reset-requests')).requests || []; } catch (e) {}
-  const pendTx = wallet ? [] : [];
+  let pendTx = [];
+  try { pendTx = (await api('/api/admin/transactions')).requests || []; } catch (e) {}
   return `${topbarHTML()}<div class="wrap"><h2 style="margin-top:14px">Admin Panel</h2>
   <div class="card"><h3>Create custom room</h3>
     <div class="field"><label>Room name</label><input id="ad-title" maxlength="160" placeholder="e.g. BR Solo — Evening"></div>
@@ -1095,6 +1096,10 @@ async function adminHTML() {
     <div class="field"><label>Room password</label><input id="ad-roompw" placeholder="optional"></div>
     <div id="ad-err"></div>
     <button class="btn" style="margin-top:12px" onclick="createMatch()">Create Room</button></div>
+  <div class="card"><h3>💰 Payment Requests (${pendTx.length})</h3>
+  ${pendTx.length ? pendTx.map((t) => `<div class="kv"><span><b>${t.type === 'withdraw' ? 'Withdraw' : 'Deposit'}</b> · ৳${Math.abs(t.amount)} · ${esc(t.username)}${t.accountId ? ` (S_19 ID #${t.accountId})` : ''} · ${esc(t.method || '—')} · ${t.type === 'withdraw' ? 'to ' : 'from '}${esc(t.accountNumber || '—')}${t.trxId ? ` · TrxID: <b>${esc(t.trxId)}</b>` : ''} · ${new Date(t.createdAt).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span><span><button class="btn-ghost btn-sm" onclick="reviewTx(${t.id},true)">Approve</button> <button class="btn-ghost btn-sm" onclick="reviewTx(${t.id},false)">Reject</button></span></div>`).join('')
+    : '<p class="muted">No pending payment requests.</p>'}
+  <p class="muted">Approve adds the money to the player's Deposit Balance; Reject adds nothing.</p></div>
   <h3 style="margin-top:20px">Matches (${adminTournaments.length})</h3>
   ${adminTournaments.map((m) => `<div class="card"><b>${esc(m.title)}</b> <span class="badge">#${m.id}</span>
     <div class="muted">${esc(m.matchDate)} ${esc(m.matchTime)} · ${esc(m.status)} · ${m.bookings.filter((b) => b.status === 'pending' || b.status === 'approved').length}/${m.totalSlots} booked · Room: ${m.roomId || '—'}</div>
@@ -1166,6 +1171,10 @@ window.setStatus = async (id, st) => { await api(`/api/tournaments/${id}/status`
 window.cancelMatch = async (id) => { if (confirm('Cancel this match? Entry fees will be refunded.')) { await api(`/api/tournaments/${id}/cancel`, { method: 'POST' }); await loadTournaments(); render(); } };
 window.deleteMatch = async (id) => { if (confirm('Delete this match? Entry fees will be refunded.')) { await api(`/api/tournaments/${id}`, { method: 'DELETE' }); await loadTournaments(); render(); } };
 window.reviewBooking = async (id, ok) => { await api(`/api/bookings/${id}/review`, { method: 'POST', body: JSON.stringify({ approve: ok }) }); render(); };
+window.reviewTx = async (id, ok) => {
+  try { await api(`/api/transactions/${id}/review`, { method: 'POST', body: JSON.stringify({ approve: ok }) }); render(); toast(ok ? 'Payment approved — balance updated' : 'Payment request rejected'); }
+  catch (e) { toast(e.message); }
+};
 window.editMatch = (id) => {
   const m = adminTournaments.find((x) => x.id === id);
   const booked = (m.bookings || []).filter((b) => b.status === 'pending' || b.status === 'approved').length;
