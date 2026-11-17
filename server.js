@@ -414,6 +414,28 @@ app.delete('/api/admin/reset-requests/:id', adminAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
 
+// Admin-only: pending payment requests (deposits + withdrawals) — the
+// list the Admin Panel approves/rejects. Without this, a deposit sat
+// pending forever and the admin never saw it.
+app.get('/api/admin/transactions', adminAuth, async (req, res) => {
+  try {
+    const rows = await db.all(
+      `SELECT w.*, p.username, p.account_id FROM wallet_tx w
+       LEFT JOIN profiles p ON p.id = w.profile_id
+       WHERE w.status = 'pending' AND w.type IN ('deposit', 'withdraw')
+       ORDER BY w.created_at DESC, w.id DESC`);
+    res.json({
+      ok: true,
+      requests: rows.map((r) => ({
+        id: r.id, type: r.type, amount: r.amount, method: r.method || '',
+        accountNumber: r.account_number || '', trxId: r.trx_id || '',
+        note: r.note || '', createdAt: r.created_at,
+        username: r.username || '', accountId: r.account_id ?? null,
+      })),
+    });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+
 function safeProfile(p) {
   if (!p) return null;
   return {
