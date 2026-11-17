@@ -469,10 +469,17 @@ window.showLW1v1Rules = (id) => {
 window.openPrizes = (id) => {
   const m = tournaments.find((x) => x.id === id);
   const isBR = m.category === 'br' && (m.subcategory === 'Solo' || m.subcategory === 'Duo');
-  const rows = isBR
-    ? [[1, '1st Winner', 90], [2, '2nd Position', 70], [3, '3rd Position', 40], [4, '4th Position', 30], [5, '5th Position', 20]]
-        .map(([n, lb, v]) => `<div class="prize-tile"><span>${n} ${lb}</span><b>${v}</b></div>`).join('')
-    : `<div class="prize-tile"><span>Winner Prize</span><b>${m.prizePool} TK</b></div>`;
+  const rankVals = [m.prize1, m.prize2, m.prize3, m.prize4, m.prize5];
+  const hasRank = rankVals.some((v) => (v || 0) > 0);
+  let rows;
+  if (isBR || hasRank) {
+    // Admin-set rank prizes win; BR Solo/Duo falls back to 90/70/40/30/20.
+    const vals = hasRank ? rankVals : [90, 70, 40, 30, 20];
+    const labels = ['1st Winner', '2nd Position', '3rd Position', '4th Position', '5th Position'];
+    rows = vals.map((v, i) => `<div class="prize-tile"><span>${i + 1} ${labels[i]}</span><b>${v}</b></div>`).join('');
+  } else {
+    rows = `<div class="prize-tile"><span>Winner Prize</span><b>${m.prizePool} TK</b></div>`;
+  }
   openModal(`<h2>🏆 Match Prizes</h2><div class="prizegrid">${rows}
     <div class="prize-tile"><span>💀 Per Kill</span><b>${m.perKillPrize}</b></div></div>
     <div class="totalbar"><span>🏆 Total Prize</span><span>${m.prizePool} TK</span></div>
@@ -713,6 +720,12 @@ async function adminHTML() {
     <div class="field"><label>Prize (TK)</label><input id="ad-prize" type="number" value="800"></div>
     <div class="field"><label>Entry fee (TK)</label><input id="ad-fee" type="number" value="20"></div>
     <div class="field"><label>Per kill (TK)</label><input id="ad-kill" type="number" value="10"></div>
+    <h4 style="margin-top:14px">🏆 Match Prizes (1st – 5th)</h4>
+    <div class="field"><label>1st Prize (TK)</label><input id="ad-prize1" type="number" value="90"></div>
+    <div class="field"><label>2nd Prize (TK)</label><input id="ad-prize2" type="number" value="70"></div>
+    <div class="field"><label>3rd Prize (TK)</label><input id="ad-prize3" type="number" value="40"></div>
+    <div class="field"><label>4th Prize (TK)</label><input id="ad-prize4" type="number" value="30"></div>
+    <div class="field"><label>5th Prize (TK)</label><input id="ad-prize5" type="number" value="20"></div>
     <div class="field"><label>Room ID</label><input id="ad-roomid" placeholder="optional"></div>
     <div class="field"><label>Room password</label><input id="ad-roompw" placeholder="optional"></div>
     <div id="ad-err"></div>
@@ -747,6 +760,9 @@ async function adminHTML() {
 window.adSub = () => {
   const c = $('#ad-cat').value;
   $('#ad-sub').innerHTML = SUBS[c].map((s) => `<option>${s}</option>`).join('');
+  // BR gets the standard 90/70/40/30/20 rank split by default; CS/LW start blank.
+  const defs = c === 'br' ? [90, 70, 40, 30, 20] : ['', '', '', '', ''];
+  for (let i = 1; i <= 5; i++) { const el = $('#ad-prize' + i); if (el) el.value = defs[i - 1]; }
 };
 window.createMatch = async () => {
   try {
@@ -756,6 +772,9 @@ window.createMatch = async () => {
       matchType: $('#ad-cat').value === 'br' ? 'battle_royale' : $('#ad-cat').value === 'cs' ? 'clash_squad' : 'lone_wolf',
       matchDate: $('#ad-date').value, matchTime: $('#ad-time').value,
       prizePool: Number($('#ad-prize').value), entryFee: Number($('#ad-fee').value),
+      prize1: Number($('#ad-prize1').value) || 0, prize2: Number($('#ad-prize2').value) || 0,
+      prize3: Number($('#ad-prize3').value) || 0, prize4: Number($('#ad-prize4').value) || 0,
+      prize5: Number($('#ad-prize5').value) || 0,
       perKillPrize: Number($('#ad-kill').value), roomId: $('#ad-roomid').value.trim(), roomPassword: $('#ad-roompw').value.trim(),
     }) });
     await loadTournaments(); render(); toast('Room created');
@@ -772,12 +791,18 @@ window.editMatch = (id) => {
   <div class="field"><label>Time</label><input id="em-time" type="time" value="${m.matchTime}"></div>
   <div class="field"><label>Prize</label><input id="em-prize" type="number" value="${m.prizePool}"></div>
   <div class="field"><label>Entry fee</label><input id="em-fee" type="number" value="${m.entryFee}"></div>
+  <h4 style="margin-top:14px">🏆 Match Prizes (1st – 5th)</h4>
+  <div class="field"><label>1st Prize (TK)</label><input id="em-prize1" type="number" value="${m.prize1 || ''}"></div>
+  <div class="field"><label>2nd Prize (TK)</label><input id="em-prize2" type="number" value="${m.prize2 || ''}"></div>
+  <div class="field"><label>3rd Prize (TK)</label><input id="em-prize3" type="number" value="${m.prize3 || ''}"></div>
+  <div class="field"><label>4th Prize (TK)</label><input id="em-prize4" type="number" value="${m.prize4 || ''}"></div>
+  <div class="field"><label>5th Prize (TK)</label><input id="em-prize5" type="number" value="${m.prize5 || ''}"></div>
   <div class="field"><label>Room ID</label><input id="em-roomid" value="${esc(m.roomId)}"></div>
   <div class="field"><label>Room password</label><input id="em-roompw" value="${esc(m.roomPassword)}"></div>
   <button class="btn" style="margin-top:14px" onclick="saveEditMatch(${id})">Save</button>`);
 };
 window.saveEditMatch = async (id) => {
-  await api(`/api/tournaments/${id}`, { method: 'PUT', body: JSON.stringify({ matchDate: $('#em-date').value, matchTime: $('#em-time').value, prizePool: Number($('#em-prize').value), entryFee: Number($('#em-fee').value), roomId: $('#em-roomid').value, roomPassword: $('#em-roompw').value }) });
+  await api(`/api/tournaments/${id}`, { method: 'PUT', body: JSON.stringify({ matchDate: $('#em-date').value, matchTime: $('#em-time').value, prizePool: Number($('#em-prize').value), entryFee: Number($('#em-fee').value), prize1: Number($('#em-prize1').value) || 0, prize2: Number($('#em-prize2').value) || 0, prize3: Number($('#em-prize3').value) || 0, prize4: Number($('#em-prize4').value) || 0, prize5: Number($('#em-prize5').value) || 0, roomId: $('#em-roomid').value, roomPassword: $('#em-roompw').value }) });
   closeModal(); await loadTournaments(); render();
 };
 window.publishResult = async () => {
