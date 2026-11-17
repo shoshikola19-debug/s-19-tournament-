@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   phone TEXT NOT NULL DEFAULT '',
   ign TEXT NOT NULL DEFAULT '',
   uid TEXT NOT NULL DEFAULT '',
+  avatar TEXT NOT NULL DEFAULT '',
   password_hash TEXT,
   password_salt TEXT,
   last_spin_date TEXT,
@@ -39,6 +40,11 @@ CREATE TABLE IF NOT EXISTS tournaments (
   total_slots INTEGER NOT NULL,
   entry_fee INTEGER NOT NULL DEFAULT 0,
   prize_pool INTEGER NOT NULL DEFAULT 0,
+  prize1 INTEGER NOT NULL DEFAULT 0,
+  prize2 INTEGER NOT NULL DEFAULT 0,
+  prize3 INTEGER NOT NULL DEFAULT 0,
+  prize4 INTEGER NOT NULL DEFAULT 0,
+  prize5 INTEGER NOT NULL DEFAULT 0,
   per_kill_prize INTEGER NOT NULL DEFAULT 0,
   per_kill_points INTEGER NOT NULL DEFAULT 0,
   room_id TEXT NOT NULL DEFAULT '',
@@ -122,6 +128,12 @@ async function init() {
     await pgPool.query(PG_SCHEMA);
     // Migration: squad names on bookings (safe to re-run — ignored if present).
     try { await pgPool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS squad_names TEXT NOT NULL DEFAULT ''`); } catch (e) {}
+    // Migration: rank prizes 1st–5th on tournaments.
+    for (const c of ['prize1', 'prize2', 'prize3', 'prize4', 'prize5']) {
+      try { await pgPool.query(`ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS ${c} INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
+    }
+    // Migration: profile avatar (data URL, downscaled client-side).
+    try { await pgPool.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar TEXT NOT NULL DEFAULT ''`); } catch (e) {}
     engine = 'postgres';
     return engine;
   }
@@ -132,6 +144,12 @@ async function init() {
   sqliteDb.exec(SQLITE_SCHEMA);
   // Migration for DB files created before the squad_names column existed.
   try { sqliteDb.exec(`ALTER TABLE bookings ADD COLUMN squad_names TEXT NOT NULL DEFAULT ''`); } catch (e) {}
+  // Migration: rank prizes 1st–5th on tournaments (safe to re-run).
+  for (const c of ['prize1', 'prize2', 'prize3', 'prize4', 'prize5']) {
+    try { sqliteDb.exec(`ALTER TABLE tournaments ADD COLUMN ${c} INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
+  }
+  // Migration: profile avatar (data URL, downscaled client-side).
+  try { sqliteDb.exec(`ALTER TABLE profiles ADD COLUMN avatar TEXT NOT NULL DEFAULT ''`); } catch (e) {}
   engine = 'sqlite';
   return engine;
 }
