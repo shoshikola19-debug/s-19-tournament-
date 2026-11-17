@@ -1144,6 +1144,8 @@ async function adminHTML() {
   try { appSettings = (await api('/api/settings')).settings || null; } catch (e) {}
   let players = [];
   try { players = (await api('/api/admin/players')).players || []; } catch (e) {}
+  let payInfo = { bkashNumber: '', nagadNumber: '', rocketNumber: '' };
+  try { payInfo = await api('/api/payment-info'); } catch (e) {}
   return `${topbarHTML()}<div class="wrap"><h2 style="margin-top:14px">Admin Panel</h2>
   <div class="card"><h3>Create custom room</h3>
     <div class="field"><label>Room name</label><input id="ad-title" maxlength="160" placeholder="e.g. BR Solo — Evening"></div>
@@ -1223,9 +1225,9 @@ async function adminHTML() {
     : '<p class="muted">No pending reset requests.</p>'}
   <p class="muted">Codes are emailed when SMTP is set up; otherwise the code shows here only for the admin, so Support can share it with the player.</p></div>
   <div class="card"><h3>Payment settings</h3>
-    <div class="field"><label>bKash number</label><input id="pay-bkash" placeholder="01XXXXXXXXX"></div>
-    <div class="field"><label>Nagad number</label><input id="pay-nagad" placeholder="01XXXXXXXXX"></div>
-    <div class="field"><label>Rocket number</label><input id="pay-rocket" placeholder="01XXXXXXXXX"></div>
+    <div class="field"><label>bKash number</label><input id="pay-bkash" placeholder="01XXXXXXXXX" value="${esc(payInfo.bkashNumber || '')}"></div>
+    <div class="field"><label>Nagad number</label><input id="pay-nagad" placeholder="01XXXXXXXXX" value="${esc(payInfo.nagadNumber || '')}"></div>
+    <div class="field"><label>Rocket number</label><input id="pay-rocket" placeholder="01XXXXXXXXX" value="${esc(payInfo.rocketNumber || '')}"></div>
     <button class="btn" style="margin-top:12px" onclick="savePayment()">Save Payment Numbers</button></div>
   </div>${bottomnavHTML()}`;
 }
