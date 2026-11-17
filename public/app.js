@@ -17,6 +17,18 @@ function clearToken() { token = ''; localStorage.removeItem('s19token'); session
 let profile = null, wallet = null, tournaments = [], adminTournaments = [];
 let view = 'landing', category = 'br', subcategory = 'Solo', myFilter = 'all';
 let selectedMatch = null, selectedSlot = 0;
+// Daily Spin wheel state (server decides the result; the wheel only animates to it).
+let spinState = null, spinRotation = 0, spinBusy = false, spinTimer = null;
+const SPIN_SEGMENTS = [
+  { key: 'cs', label: 'CS Match', color: '#f39c12' },
+  { key: 'none', label: 'No Prize', color: '#37474f' },
+  { key: 'lw', label: 'LW Match', color: '#1e88e5' },
+  { key: 'none', label: 'No Prize', color: '#37474f' },
+  { key: 'all', label: 'All Match', color: '#e53935' },
+  { key: 'none', label: 'No Prize', color: '#37474f' },
+  { key: 'br', label: 'BR Match', color: '#43a047' },
+  { key: 'none', label: 'No Prize', color: '#37474f' },
+];
 
 const L = {
   en: { hero: 'Daily Free Fire tournaments — BR, CS and Lone Wolf. Book your slot, play the custom room, and win real Taka prizes straight to your wallet.',
@@ -409,7 +421,7 @@ function topbarHTML() {
   <span class="chip">৳${wallet ? wallet.depositBalance + wallet.winningBalance : 0}</span></div>`;
 }
 function bottomnavHTML() {
-  const items = [['wallet', '💎', 'Diamond Topup'], ['results', '📊', 'Results'], ['play', '🎮', 'Play'], ['mymatches', '🏆', 'My Matches'], ['profile', '👤', 'Profile']];
+  const items = [['topup', '💎', 'Diamond Topup'], ['results', '📊', 'Results'], ['play', '🎮', 'Play'], ['mymatches', '🏆', 'My Matches'], ['profile', '👤', 'Profile']];
   return `<div class="bottomnav">${items.map(([v, ic, lb]) => `<button class="${view === v ? 'on' : ''}" onclick="view='${v}';render()"><span class="ic">${ic}</span>${lb}</button>`).join('')}</div><button class="chat-fab" onclick="openSupport()" aria-label="Customer Support">💬</button>`;
 }
 function matchCard(m) {
@@ -587,6 +599,13 @@ window.selectSlot = (n, el) => {
   $$('.slot').forEach((s) => s.classList.remove('sel'));
   el.classList.add('sel');
 };
+function passForMatch(m) {
+  if (!profile || !profile.passes || !m) return null;
+  const cat = m.category;
+  if (profile.passes[cat] > 0) return { type: cat, count: profile.passes[cat], label: cat.toUpperCase() + ' Match' };
+  if (profile.passes.all > 0) return { type: 'all', count: profile.passes.all, label: 'All Match' };
+  return null;
+}
 window.proceedJoin = () => {
   if (!selectedSlot) { $('#slot-err').innerHTML = '<div class="err">Pick a slot first</div>'; return; }
   const teamSize = teamSizeOf(selectedMatch);
@@ -595,11 +614,15 @@ window.proceedJoin = () => {
       <p class="muted">Playing as a squad? Add your teammates' in-game names — they will be saved with your booking.</p>
       ${Array.from({ length: teamSize - 1 }, (_, i) => `<div class="field"><label>Teammate ${i + 2} in-game name (optional)</label><input id="f-squad-${i + 1}" placeholder="Teammate ${i + 2} name"></div>`).join('')}
     </div>` : '';
+  // Free pass won on the Daily Spin wheel: category pass first, else All pass.
+  const passInfo = passForMatch(selectedMatch);
+  const passBox = passInfo ? `<div class="squad-box"><label style="display:flex;gap:8px;font-size:14px;align-items:flex-start"><input type="checkbox" id="f-usepass" style="width:auto;margin-top:2px"> <span>🎟️ <b>Use free pass</b> — you have ${passInfo.count} ${passInfo.label} pass${passInfo.count > 1 ? 'es' : ''}. Entry fee will be <b>৳0</b>.</span></label></div>` : '';
   openModal(`<h2>Enter Player Name</h2>
   <div class="step-dots"><span class="step-dot done">1</span><span class="step-dot on">2</span><span class="step-dot">3</span><span class="step-dot">4</span></div>
   <p class="muted">Join only with your own registered in-game name. Only the registered player may play — inviting an unregistered player means a permanent ban.</p>
   <div class="field"><label>Player Name (exact in-game name)</label><input id="f-playername" value="${esc(profile ? profile.ign : '')}"></div>
   ${squadFields}
+  ${passBox}
   <label style="display:flex;gap:8px;margin-top:14px;font-size:14px"><input type="checkbox" id="f-agree" style="width:auto"> I have read the match rules</label>
   <div id="join-err"></div>
   <button class="btn" style="margin-top:16px" onclick="confirmJoin()">I Agree and Confirm</button>`);
@@ -613,11 +636,13 @@ window.confirmJoin = async () => {
       if (el && el.value.trim()) squadNames.push(el.value.trim());
     }
   }
+  const usePass = !!($('#f-usepass') && $('#f-usepass').checked);
   try {
-    await api(`/api/tournaments/${selectedMatch.id}/book`, { method: 'POST', body: JSON.stringify({ slotNumber: selectedSlot, playerName: $('#f-playername').value.trim(), squadNames }) });
+    const d = await api(`/api/tournaments/${selectedMatch.id}/book`, { method: 'POST', body: JSON.stringify({ slotNumber: selectedSlot, playerName: $('#f-playername').value.trim(), squadNames, usePass }) });
     await loadTournaments(); await loadMe();
     openModal(`<h2>✅ Join Group</h2>
     <p style="line-height:1.7;margin-top:10px">You booked <b>slot ${selectedSlot}</b> in <b>${esc(selectedMatch.title)}</b>. Your booking is pending owner approval.</p>
+    ${d.usedPass ? `<p style="line-height:1.7;margin-top:8px">🎟️ Joined free with your <b>${esc(d.usedPass.toUpperCase())} Match</b> pass — no entry fee charged.</p>` : ''}
     ${squadNames.length ? `<p style="line-height:1.7;margin-top:8px">👥 <b>Your squad:</b> ${esc(squadNames.join(', '))}</p>` : ''}
     <div class="warn">⚠ You will get the custom ID password 2 to 4 minutes before the match starts in the Room Details Button. Stay in the Join Group screen and wait.</div>
     <button class="btn" style="margin-top:14px" onclick="closeModal();view='mymatches';render()">Go to My Matches</button>`);
@@ -631,6 +656,7 @@ function myMatchesHTML() {
   return `${topbarHTML()}<div class="wrap"><h2 style="margin-top:14px">My Matches</h2>
   ${mine.length ? mine.map(({ m, b }) => { const sq = squadList(b); return `<div class="card"><b>${esc(m.title)}</b> <span class="badge">#${m.id}</span>
     <div class="muted" style="margin-top:6px">${esc(m.matchDate)} ${esc(m.matchTime)} · Slot ${b.slot_number} · ${esc(b.status)}</div>
+    ${b.used_pass ? `<div class="muted" style="margin-top:4px">🎟️ Joined with free ${esc(b.used_pass.toUpperCase())} Match pass</div>` : ''}
     ${sq.length ? `<div class="muted" style="margin-top:4px">👥 Squad: ${esc(sq.join(', '))}</div>` : ''}
     <div class="row3" style="grid-template-columns:1fr 1fr"><button class="btn-ghost" onclick="openRoom(${m.id})">🚪 Room Details</button>
     ${b.status === 'pending' ? `<button class="btn-ghost" onclick="cancelBooking(${b.id})">Cancel</button>` : ''}</div></div>`; }).join('')
@@ -837,6 +863,46 @@ window.doWithdraw = async () => {
   } catch (e) { $('#wd-err').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 };
 
+// ---------- diamond topup (display only) ----------
+// Shop front: banner + BD / Indonesia server pack cards. Top-up is NOT
+// active yet — tapping a pack only shows "Top-up coming soon". No order,
+// no payment, no money moves here.
+const TOPUP_PACKS_BD = [
+  { key: 'uid', name: 'UID TOPUP', bn: 'আইডি কোড টপআপ', ic: '💎', cls: 'tp-uid' },
+  { key: 'levelup', name: 'Level Up Pass', bn: 'লেভেল আপ পাস', ic: '🆙', cls: 'tp-level' },
+  { key: 'weekly-lite', name: 'Weekly Lite', bn: 'WEEKLY LITE', ic: '📦', cls: 'tp-lite' },
+  { key: 'weekly-monthly', name: 'Weekly & Monthly', bn: 'উইকলি মান্থলি', ic: '🗓️', cls: 'tp-wm' },
+];
+const TOPUP_PACKS_ID = [
+  { key: 'uid-id', name: 'UID Topup', bn: 'আইডি কোড টপআপ', ic: '💎', cls: 'tp-uid' },
+  { key: 'weekly-id', name: 'Weekly', bn: 'WEEKLY', ic: '📦', cls: 'tp-lite' },
+];
+function topupHTML() {
+  const bal = wallet ? wallet.depositBalance + wallet.winningBalance : 0;
+  const card = (p) => `<button class="topup-card" onclick="topupSoon()">
+    <span class="topup-tile ${p.cls}"><span class="topup-ic">${p.ic}</span><span class="topup-bn">${esc(p.bn)}</span></span>
+    <span class="topup-name">${esc(p.name)}</span></button>`;
+  return `<div class="wrap">
+  <div class="topup-head">
+    <button class="topup-bal" onclick="view='wallet';render()">💰 ৳${bal}</button>
+    <button class="topup-lang" onclick="setLang(lang==='en'?'bn':'en')">${lang === 'en' ? 'বাংলা' : 'EN'}</button>
+  </div>
+  <div class="topup-banner">
+    <img class="topup-logo" src="/logo.webp" alt="S_19 Tournament" onerror="this.style.display='none'">
+    <div class="topup-banner-txt">
+      <div class="topup-badges"><span class="topup-badge">৪৯ টাকায় উইকলি</span><span class="topup-badge">১ টাকায় উইকলি লাইট</span></div>
+      <b>সব থেকে কম দামে<br>টপ-আপ করুন মাত্র<br>৫ সেকেন্ডে</b>
+    </div>
+  </div>
+  <h2 class="topup-sec">FREE FIRE TOPUP BD SERVER</h2>
+  <div class="topup-grid">${TOPUP_PACKS_BD.map(card).join('')}</div>
+  <h2 class="topup-sec">INDONESIA SERVER</h2>
+  <div class="topup-grid">${TOPUP_PACKS_ID.map(card).join('')}</div>
+  <p class="muted center" style="margin-top:18px">Top-up is coming soon — packs are shown for preview only.</p>
+  </div>${bottomnavHTML()}`;
+}
+window.topupSoon = () => toast('Top-up coming soon');
+
 // ---------- profile / admin ----------
 function profileHTML() {
   const played = tournaments.reduce((n, m) => n + m.bookings.filter((b) => profile && b.profile_id === profile.id).length, 0);
@@ -862,15 +928,15 @@ function profileHTML() {
     <p class="muted" style="margin-top:10px;font-size:13px">IGN ${esc(profile ? profile.ign : '—')} · UID ${esc(profile ? profile.uid : '—')}</p>
   </div>
   <div class="profile-tiles">
-    <div class="profile-tile hot"><span>BDT<br>BALANCE</span><b class="red">৳${wallet ? wallet.depositBalance : 0}</b></div>
-    <div class="profile-tile"><span>TOPUP BALANCE</span><b>৳${wallet ? wallet.winningBalance : 0}</b></div>
+    <div class="profile-tile hot" style="cursor:pointer" onclick="view='wallet';render()"><span>BDT<br>BALANCE</span><b class="red">৳${wallet ? wallet.depositBalance : 0}</b></div>
+    <div class="profile-tile" style="cursor:pointer" onclick="view='wallet';render()"><span>TOPUP BALANCE</span><b>৳${wallet ? wallet.winningBalance : 0}</b></div>
     <div class="profile-tile"><span>TOTAL MATCHES</span><b>${played}</b></div>
     <div class="profile-tile"><span>TOTAL WON</span><b>৳${wonTk}</b></div>
   </div>
   <div class="menu-list">
     ${menuRow('👛', 'Wallet', 'Manage payments & withdrawals', "view='wallet';render()")}
     ${menuRow('📖', 'All Rules', 'Check gameplay guidelines', 'showNotice(1)')}
-    ${menuRow('🎡', 'Daily Spin', profile && profile.spunToday ? 'Already spun today — come back tomorrow' : 'Spin to win free match passes', 'dailySpin()')}
+    ${menuRow('🎡', 'Daily Spin', profile && profile.spunToday ? 'Already spun today — come back tomorrow' : 'Spin to win free match passes', 'openSpin()')}
     ${menuRow('📊', 'Leaderboard', 'Top players & your rank', "view='results';render()")}
     ${profile && profile.isAdmin ? menuRow('⚙️', 'Admin Panel', 'Create rooms, approve payments & results', "view='admin';render()") : ''}
     ${menuRow('👨‍💻', 'Developer Profile', 'About S_19', 'devProfile()')}
@@ -918,9 +984,85 @@ window.saveProfile = async () => {
   try { const d = await api('/api/profile', { method: 'POST', body: JSON.stringify({ ign: $('#pf-ign').value.trim(), uid: $('#pf-uid').value.trim() }) }); profile = d.profile; closeModal(); render(); toast('Profile saved'); }
   catch (e) { $('#pf-err').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 };
-window.dailySpin = async () => {
-  try { const d = await api('/api/spin', { method: 'POST' }); await loadMe(); openModal(`<h2>🎡 Daily Spin</h2><div class="spinwheel"><span>৳${d.prize}</span></div><p class="center">You won <b>৳${d.prize}</b>!</p><button class="btn" style="margin-top:14px" onclick="closeModal();render()">OK</button>`); }
-  catch (e) { toast(e.message); }
+// ---------- daily spin wheel ----------
+function stopSpinTimer() { if (spinTimer) { clearInterval(spinTimer); spinTimer = null; } }
+function startSpinCountdown() {
+  stopSpinTimer();
+  const tick = () => {
+    const el = $('#spin-countdown');
+    if (!el || !spinState) { stopSpinTimer(); return; }
+    const ms = spinState.nextSpinAt - Date.now();
+    if (ms <= 0) { el.textContent = 'You can spin again — reopen Daily Spin'; stopSpinTimer(); return; }
+    const s = Math.floor(ms / 1000);
+    const hh = String(Math.floor(s / 3600)).padStart(2, '0');
+    const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+    const ss = String(s % 60).padStart(2, '0');
+    el.textContent = `Next Spin in ${hh}:${mm}:${ss}`;
+  };
+  tick();
+  spinTimer = setInterval(tick, 1000);
+}
+window.openSpin = async () => {
+  try {
+    spinState = await api('/api/daily-spin');
+    view = 'spin'; render();
+  } catch (e) { toast(e.message); }
+};
+function spinHTML() {
+  if (!spinState) { setTimeout(() => openSpin(), 0); return '<div class="wrap center" style="padding-top:60px"><div class="spinner"></div></div>'; }
+  const p = spinState.passes || { br: 0, cs: 0, lw: 0, all: 0 };
+  const can = spinState.canSpin;
+  const counters = [['BR', p.br, '#43a047'], ['CS', p.cs, '#f39c12'], ['LW', p.lw, '#1e88e5'], ['ALL', p.all, '#e53935']].map(([lb, n, c]) =>
+    `<div class="spin-counter"><span class="spin-count" style="color:${c};border-color:${c}">${n}</span><span>${lb}</span></div>`).join('');
+  const labels = SPIN_SEGMENTS.map((s, i) => {
+    const a = i * 45 + 22.5;
+    return `<div class="spin-label" style="transform:rotate(${a}deg)"><span>${s.label}</span></div>`;
+  }).join('');
+  const grad = SPIN_SEGMENTS.map((s, i) => `${s.color} ${i * 45}deg ${(i + 1) * 45}deg`).join(',');
+  return `${topbarHTML()}<div class="wrap">
+  <div class="spin-head"><button class="back-arrow" onclick="view='profile';render()" aria-label="Back">←</button><h2>Daily Spin</h2><span class="head-spacer"></span></div>
+  <div class="spin-counters">${counters}</div>
+  <div class="spin-wheel-wrap">
+    <div class="spin-pointer"></div>
+    <div id="spin-wheel" class="spin-wheel" style="background:conic-gradient(${grad});transform:rotate(${spinRotation}deg)">${labels}</div>
+    <div class="spin-hub">🎯</div>
+  </div>
+  <p class="muted center" style="margin-top:14px">Spin once a day to win a free match pass. A pass lets you join a match without paying the entry fee.</p>
+  <button id="spin-btn" class="btn spin-btn" style="margin-top:16px" ${can ? '' : 'disabled'} onclick="doSpin()">${can ? '🎡 Spin Now' : 'Spun today'}</button>
+  ${can ? '' : `<p id="spin-countdown" class="center spin-countdown">Next Spin in --:--:--</p>`}
+  </div>${bottomnavHTML()}`;
+}
+window.doSpin = async () => {
+  if (spinBusy || !spinState || !spinState.canSpin) return;
+  spinBusy = true;
+  const btn = $('#spin-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Spinning...'; }
+  try {
+    const d = await api('/api/daily-spin', { method: 'POST' });
+    spinState = d;
+    // Animate the wheel to the server's segment: 5 full turns, then stop
+    // with the pointer inside the winning segment (small random jitter).
+    const center = d.segment * 45 + 22.5 + (Math.random() * 24 - 12);
+    const cur = ((spinRotation % 360) + 360) % 360;
+    const delta = (((-center - cur) % 360) + 360) % 360;
+    spinRotation = spinRotation + 1800 + delta;
+    const wheel = $('#spin-wheel');
+    if (wheel) wheel.style.transform = `rotate(${spinRotation}deg)`;
+    setTimeout(() => {
+      spinBusy = false;
+      loadMe();
+      render();
+      const won = d.prize !== 'none';
+      openModal(`<h2>${won ? '🎉 You Won!' : '😕 No Prize'}</h2>
+        <p class="center" style="line-height:1.7;margin-top:10px">${won
+          ? `You won a free <b>${esc(d.prizeLabel)}</b> pass! Use it from any ${d.prize === 'all' ? 'BR, CS or LW' : d.prize.toUpperCase()} match — tick "Use free pass" when you join.`
+          : 'You did not win this time. Better luck tomorrow!'}</p>
+        <button class="btn" style="margin-top:14px" onclick="closeModal()">OK</button>`);
+    }, 4400);
+  } catch (e) {
+    spinBusy = false; toast(e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '🎡 Spin Now'; }
+  }
 };
 window.devProfile = () => openModal(`<h2>Developer Profile</h2><div class="card center"><img class="logo" src="/logo.webp" onerror="this.src='/icon-512.png'"><p style="margin-top:10px"><b>S_19</b></p><p class="muted">Voice of Bijoy · S_19 Tournament · S_19 CHAT BOOK · BR 19</p></div><button class="btn" style="margin-top:14px" onclick="closeModal()">Close</button>`);
 window.logout = () => { clearToken(); profile = null; wallet = null; view = 'login'; render(); toast('Logged out'); };
@@ -1077,14 +1219,17 @@ function noticeSeen() { try { return sessionStorage.getItem('s19noticeSeen') ===
 function markNoticeSeen() { try { sessionStorage.setItem('s19noticeSeen', '1'); } catch (e) {} }
 function render() {
   stopBanner();
+  stopSpinTimer();
   if (view === 'landing') app.innerHTML = landingHTML();
   else if (view === 'login' || view === 'register') app.innerHTML = authHTML();
   else if (view === 'play') app.innerHTML = playHTML();
   else if (view === 'cat') app.innerHTML = categoryHTML();
   else if (view === 'list') app.innerHTML = listHTML();
+  else if (view === 'spin') { app.innerHTML = spinHTML(); if (spinState && !spinState.canSpin) startSpinCountdown(); }
   else if (view === 'mymatches') app.innerHTML = myMatchesHTML();
   else if (view === 'results') { app.innerHTML = resultsHTML(); loadLeaderboard(); }
   else if (view === 'wallet') app.innerHTML = walletHTML();
+  else if (view === 'topup') app.innerHTML = topupHTML();
   else if (view === 'profile') app.innerHTML = profileHTML();
   else if (view === 'admin') { app.innerHTML = '<div class="wrap center" style="padding-top:60px"><div class="spinner"></div><p class="muted" style="margin-top:12px">Loading admin panel...</p></div>'; adminHTML().then((h) => { app.innerHTML = h; adSub(); }); return; }
   if (view === 'admin') return;
