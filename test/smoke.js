@@ -59,6 +59,15 @@ function req(method, p, body, token) {
     assert.ok(meAv.data.profile.avatar.startsWith('data:image/'), 'avatar present in /api/me');
     const bad = await req('POST', '/api/deposit', { amount: 100, method: 'bkash', senderNumber: '01906502081', trxId: 'abc' }, ownerToken);
     assert.strictEqual(bad.status, 400, 'bad trx rejected');
+    // deposit limits 10–1000 (server-enforced); Nagad/Rocket blocked — no number set yet
+    const dep9 = await req('POST', '/api/deposit', { amount: 9, method: 'bkash', senderNumber: '01906502081', trxId: 'LOWAMT001' }, ownerToken);
+    assert.strictEqual(dep9.status, 400, 'deposit 9 rejected');
+    const dep1001 = await req('POST', '/api/deposit', { amount: 1001, method: 'bkash', senderNumber: '01906502081', trxId: 'HIGHAMT01' }, ownerToken);
+    assert.strictEqual(dep1001.status, 400, 'deposit 1001 rejected');
+    const depNagad = await req('POST', '/api/deposit', { amount: 100, method: 'nagad', senderNumber: '01906502081', trxId: 'NAGAD0001' }, ownerToken);
+    assert.strictEqual(depNagad.status, 400, 'nagad deposit blocked without number');
+    const depRocket = await req('POST', '/api/deposit', { amount: 100, method: 'rocket', senderNumber: '01906502081', trxId: 'ROCKET001' }, ownerToken);
+    assert.strictEqual(depRocket.status, 400, 'rocket deposit blocked without number');
     const dep = await req('POST', '/api/deposit', { amount: 200, method: 'bkash', senderNumber: '01906502081', trxId: 'TESTTRX01' }, ownerToken);
     assert.strictEqual(dep.status, 200, 'deposit request created');
     const dup = await req('POST', '/api/deposit', { amount: 200, method: 'bkash', senderNumber: '01906502081', trxId: 'testtrx01' }, ownerToken);
@@ -122,6 +131,21 @@ function req(method, p, body, token) {
     assert.strictEqual(noRank.prize1, 0, 'prize1 defaults 0');
     assert.strictEqual(noRank.prize5, 0, 'prize5 defaults 0');
 
+    // transfer balance: Winning -> Deposit only (deposit 180, winning 260 here)
+    const trBad = await req('POST', '/api/transfer-balance', { amount: 500 }, ownerToken);
+    assert.strictEqual(trBad.status, 400, 'transfer more than winning rejected');
+    const trZero = await req('POST', '/api/transfer-balance', { amount: 0 }, ownerToken);
+    assert.strictEqual(trZero.status, 400, 'transfer 0 rejected');
+    const trNeg = await req('POST', '/api/transfer-balance', { amount: -50 }, ownerToken);
+    assert.strictEqual(trNeg.status, 400, 'transfer negative rejected');
+    const tr = await req('POST', '/api/transfer-balance', { amount: 100 }, ownerToken);
+    assert.strictEqual(tr.status, 200, 'transfer 100: ' + JSON.stringify(tr.data));
+    me = await req('GET', '/api/me', null, ownerToken);
+    assert.strictEqual(me.data.wallet.winningBalance, 160, 'winning 260-100=160, got ' + me.data.wallet.winningBalance);
+    assert.strictEqual(me.data.wallet.depositBalance, 280, 'deposit 180+100=280, got ' + me.data.wallet.depositBalance);
+    const trAgain = await req('POST', '/api/transfer-balance', { amount: 161 }, ownerToken);
+    assert.strictEqual(trAgain.status, 400, 'transfer above remaining winning rejected');
+
     // withdraw below minimum + from deposit refused; spin works once
     const wdBad = await req('POST', '/api/withdraw', { amount: 50, method: 'bkash', accountNumber: '01906502081' }, ownerToken);
     assert.strictEqual(wdBad.status, 400, 'withdraw below 100 refused');
@@ -150,11 +174,11 @@ function req(method, p, body, token) {
     // team boxes, Match Full, tutorial, Remember Me, Forgot, results tabs,
     // support modal + animations must be present in served files
     const appJs = await (await fetch('http://127.0.0.1:3101/app.js')).text();
-    for (const s of ['banner-carousel', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'TOPUP BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'S_19 on Telegram', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'Join with Squad', 'squadNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled', 'ad-prize1', 'em-prize1', 'Match Prizes', '1st Prize', '2nd Prize', 'prize1', 'avatar-img', 'avatar-cam', 'uploadAvatar', 'copyS19Id', 'profile-tiles', 'profile-tile', 'menu-list', 'menu-row', 'BDT', 'Edit Profile', 'Daily Spin', 'All Rules', 'Leaderboard']) {
+    for (const s of ['banner-carousel', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'TOPUP BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'S_19 on Telegram', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'Join with Squad', 'squadNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled', 'ad-prize1', 'em-prize1', 'Match Prizes', '1st Prize', '2nd Prize', 'prize1', 'avatar-img', 'avatar-cam', 'uploadAvatar', 'copyS19Id', 'profile-tiles', 'profile-tile', 'menu-list', 'menu-row', 'BDT', 'Edit Profile', 'Daily Spin', 'All Rules', 'Leaderboard', 'wallet-hero', 'Available Balance', 'DEPOSITED', 'WINNING', 'Transfer Balance', 'openTransfer', 'transfer-balance', 'Transfer to Deposit', 'BKASH &amp; NAGAD', 'Proceed to Payment', '10 - 1000', 'minimum of 10 Taka', 'maximum of 1000', 'Transaction History', 'openTxHistory', 'How to add money?', 'openHowToAddMoney', 'How to join a match?', 'How to withdraw?', 'openHowToWithdraw', 'Nagad number not added yet', 'Nagad number will be added later', 'depPickGateway', 'depPickMethod', 'depCheck', 'depStep2']) {
       assert.ok(appJs.includes(s), 'app.js missing: ' + s);
     }
     const css = await (await fetch('http://127.0.0.1:3101/styles.css')).text();
-    for (const s of ['@keyframes pageIn', '@keyframes cardIn', 'splashPulse', 'splashSpin', '.spinner', '.chat-fab', '.banner-carousel', 'prefers-reduced-motion', '.shield-tile', '.shield-label', '.help-row', '.help-contact', '.page-head', '.squad-box', '.sub-card', '.avatar-img', '.avatar-cam', '.profile-tiles', '.profile-tile', '.menu-list', '.menu-row', '.edit-pill', '.id-pill']) {
+    for (const s of ['@keyframes pageIn', '@keyframes cardIn', 'splashPulse', 'splashSpin', '.spinner', '.chat-fab', '.banner-carousel', 'prefers-reduced-motion', '.shield-tile', '.shield-label', '.help-row', '.help-contact', '.page-head', '.squad-box', '.sub-card', '.avatar-img', '.avatar-cam', '.profile-tiles', '.profile-tile', '.menu-list', '.menu-row', '.edit-pill', '.id-pill', '.wallet-hero', '.wallet-tiles', '.wallet-tile', '.wallet-actions', '.wallet-btn', '.wallet-btn-blue', '.wallet-btn-green', '.wallet-btn-purple', '.addmoney-hero', '.addmoney-ic', '.dep-note', '.gw-pills', '.gw-pill', '.amt-box', '.btn-proceed']) {
       assert.ok(css.includes(s), 'styles.css missing: ' + s);
     }
     const man = await fetch('http://127.0.0.1:3101/manifest.webmanifest');
