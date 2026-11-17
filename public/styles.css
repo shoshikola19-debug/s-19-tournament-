@@ -91,3 +91,29 @@ h3{font-size:16px;margin-bottom:8px}
 .spinwheel span{background:#0a0a0a;border-radius:50%;width:70px;height:70px;display:flex;align-items:center;justify-content:center;font-weight:800}
 .notice-bn{line-height:1.8;font-size:14px}
 .notice-bn li{margin:0 0 8px 18px}
+/* splash / loading screen — black + red, S_19 brand */
+.splash{position:fixed;inset:0;z-index:200;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity .45s ease}
+.splash.hide{opacity:0;pointer-events:none}
+.splash-glow{position:absolute;top:50%;left:50%;width:380px;height:380px;transform:translate(-50%,-58%);border-radius:50%;background:radial-gradient(circle,rgba(229,9,20,.45),rgba(229,9,20,.12) 45%,transparent 70%);pointer-events:none}
+.splash-logo{position:relative;width:150px;height:150px;border-radius:50%;object-fit:cover;border:3px solid var(--red);box-shadow:0 0 40px rgba(229,9,20,.75),0 0 100px rgba(229,9,20,.35);animation:splashPulse 1.6s ease-in-out infinite}
+.splash-title{position:relative;margin-top:28px;font-size:28px;font-weight:800;letter-spacing:8px;color:var(--red2);text-align:center;text-shadow:0 0 24px rgba(255,30,45,.6)}
+.splash-sub{position:relative;margin-top:14px;color:#bdbdbd;font-size:15px}
+.splash-spin{position:relative;width:64px;height:64px;margin-top:30px}
+.splash-hex{width:64px;height:64px;background:var(--red2);clip-path:polygon(50% 0,93% 25%,93% 75%,50% 100%,7% 75%,7% 25%);animation:splashSpin 1.6s linear infinite;position:relative}
+.splash-hex::after{content:'';position:absolute;inset:5px;background:#000;clip-path:polygon(50% 0,93% 25%,93% 75%,50% 100%,7% 75%,7% 25%)}
+.splash-dot{position:absolute;left:50%;top:50%;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;background:var(--red2);box-shadow:0 0 16px var(--red2);animation:splashDot 1.2s ease-in-out infinite}
+.splash-ver{position:absolute;bottom:36px;color:#777;letter-spacing:3px;font-size:12px}
+@keyframes splashPulse{0%,100%{transform:scale(1);box-shadow:0 0 40px rgba(229,9,20,.75),0 0 100px rgba(229,9,20,.35)}50%{transform:scale(1.05);box-shadow:0 0 60px rgba(229,9,20,.95),0 0 130px rgba(229,9,20,.5)}}
+@keyframes splashSpin{to{transform:rotate(360deg)}}
+@keyframes splashDot{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.6);opacity:.55}}
+/* welcome notice — centred card over home, scroll to accept */
+.overlay.center{align-items:center;padding:16px}
+.notice-sheet{background:#141414;border:1px solid #7a1f1f;border-radius:20px;width:100%;max-width:520px;max-height:88vh;display:flex;flex-direction:column;padding:20px 16px 22px;box-shadow:0 0 40px rgba(229,9,20,.35)}
+.notice-scroll{overflow-y:auto;max-height:50vh;padding-right:6px;margin-top:10px;scrollbar-width:thin;scrollbar-color:var(--red) #222}
+.notice-scroll::-webkit-scrollbar{width:6px}
+.notice-scroll::-webkit-scrollbar-thumb{background:var(--red);border-radius:4px}
+.notice-scroll::-webkit-scrollbar-track{background:#222}
+.notice-scroll h3{margin-top:14px}
+.scroll-hint{color:var(--red2);text-align:center;font-weight:700;margin-top:12px;animation:hintBounce 1.2s ease-in-out infinite}
+@keyframes hintBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(4px)}}
+.btn-readall{background:#2a2a2a !important;color:#777 !important;box-shadow:none !important}
