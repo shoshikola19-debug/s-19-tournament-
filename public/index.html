@@ -28,7 +28,9 @@
     window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
   }
   let deferredPrompt = null;
-  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; window.__s19Install = e; });
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; window.__s19Install = e; const b = document.getElementById('dl-btn'); if (b) b.style.display = ''; });
+  // Once installed, the Download button never shows again on this phone.
+  window.addEventListener('appinstalled', () => { window.__s19AppInstalled = true; const b = document.getElementById('dl-btn'); if (b) b.style.display = 'none'; });
 </script>
 </body>
 </html>
