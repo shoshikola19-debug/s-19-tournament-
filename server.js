@@ -266,17 +266,150 @@ app.post('/api/login', async (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
 
-app.post('/api/forgot-password', async (req, res) => {
+// ---- forgot password: 6-digit code, 10 min expiry, 5 attempts, 60s resend cooldown ----
+// The plain code is NEVER logged. It is emailed when SMTP is configured;
+// otherwise it is stored (code_plain) so the admin can relay it via Support —
+// admin-only, auto-deleted on use/expiry. Only the sha256 hash is used to verify.
+const RESET_TTL_MS = 10 * 60 * 1000;
+const RESET_RESEND_MS = 60 * 1000;
+let mailTransport; // undefined = not checked yet, null = not configured
+function getMailTransport() {
+  if (mailTransport !== undefined) return mailTransport;
+  mailTransport = null;
   try {
-    const { email, newPassword } = req.body || {};
-    if (!newPassword || String(newPassword).length < 4) {
-      return res.status(400).json({ ok: false, error: 'New password must be 4+ characters' });
+    const nodemailer = require('nodemailer');
+    if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+      mailTransport = nodemailer.createTransport({
+        host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587),
+        secure: process.env.SMTP_SECURE === 'true',
+        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      });
+    } else if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
+      mailTransport = nodemailer.createTransport({
+        service: 'gmail',
+        auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD },
+      });
     }
-    const p = await db.get('SELECT * FROM profiles WHERE LOWER(email) = LOWER(?)', [email]);
-    if (!p) return res.status(400).json({ ok: false, error: 'No account found with this email' });
-    const { salt, hash } = hashPassword(String(newPassword));
-    await db.run('UPDATE profiles SET password_hash = ?, password_salt = ? WHERE id = ?', [hash, salt, p.id]);
+  } catch (e) { mailTransport = null; }
+  return mailTransport;
+}
+async function sendResetCodeEmail(to, code) {
+  const t = getMailTransport();
+  if (!t) return false;
+  try {
+    await t.sendMail({
+      from: process.env.SMTP_FROM || process.env.GMAIL_USER || process.env.SMTP_USER,
+      to,
+      subject: 'S_19 TOURNAMENT — Password Reset Code',
+      text: `Your S_19 TOURNAMENT password reset code is: ${code}\n\nIt expires in 10 minutes. If you did not ask for this, ignore this email.`,
+    });
+    return true;
+  } catch (e) { console.error('reset email failed:', e.message); return false; }
+}
+
+app.post('/api/forgot-password/request', async (req, res) => {
+  try {
+    const raw = String((req.body || {}).emailOrPhone || '').trim();
+    if (!raw) return res.status(400).json({ ok: false, error: 'Enter your email or phone number' });
+    const isEmail = raw.includes('@');
+    const identifier = isEmail ? raw.toLowerCase() : normalizePhone(raw);
+    if (!identifier) return res.status(400).json({ ok: false, error: 'Enter a valid email or Bangladeshi phone number' });
+    const p = isEmail
+      ? await db.get('SELECT * FROM profiles WHERE LOWER(email) = LOWER(?)', [raw])
+      : await findProfileByPhone(raw);
+    if (!p || !p.password_hash) {
+      // Don't reveal whether the account exists.
+      return res.json({ ok: true, message: 'If an account exists for this email or phone, a reset code has been sent.' });
+    }
+    const now = Date.now();
+    const prev = await db.get('SELECT * FROM password_resets WHERE identifier = ? ORDER BY id DESC', [identifier]);
+    if (prev && now - prev.last_sent_at < RESET_RESEND_MS) {
+      const wait = Math.ceil((RESET_RESEND_MS - (now - prev.last_sent_at)) / 1000);
+      return res.status(429).json({ ok: false, error: `Please wait ${wait} seconds before requesting another code.`, retryAfter: wait });
+    }
+    await db.run('DELETE FROM password_resets WHERE identifier = ?', [identifier]);
+    const code = String(crypto.randomInt(100000, 1000000));
+    const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+    const contact = isEmail ? raw.toLowerCase() : canonicalPhone(raw);
+    let channel = 'admin';
+    let emailed = false;
+    if (isEmail) {
+      emailed = await sendResetCodeEmail(contact, code);
+      if (emailed) channel = 'email';
+    }
+    await db.run('INSERT INTO password_resets (identifier, contact, channel, code_hash, code_plain, expires_at, attempts_left, last_sent_at, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+      [identifier, contact, channel, codeHash, emailed ? '' : code, now + RESET_TTL_MS, 5, now, new Date().toISOString()]);
+    return res.json({
+      ok: true, channel,
+      message: emailed ? 'Reset code sent to your email.' : 'Code sent — check your email. If you didn\'t get it, contact Support.',
+    });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+
+app.post('/api/forgot-password/verify', async (req, res) => {
+  try {
+    const { emailOrPhone, code, newPassword } = req.body || {};
+    if (!emailOrPhone || !code || !newPassword || String(newPassword).length < 4) {
+      return res.status(400).json({ ok: false, error: 'Code and a 4+ character new password are required' });
+    }
+    const raw = String(emailOrPhone).trim();
+    const identifier = raw.includes('@') ? raw.toLowerCase() : normalizePhone(raw);
+    if (!identifier) return res.status(400).json({ ok: false, error: 'Enter a valid email or phone number' });
+    const row = await db.get('SELECT * FROM password_resets WHERE identifier = ? ORDER BY id DESC', [identifier]);
+    if (!row) return res.status(400).json({ ok: false, error: 'No reset code found. Please request a new code.' });
+    const now = Date.now();
+    if (now > row.expires_at) {
+      await db.run('DELETE FROM password_resets WHERE id = ?', [row.id]);
+      return res.status(400).json({ ok: false, error: 'This code has expired. Please request a new code.' });
+    }
+    if (row.attempts_left <= 0) {
+      await db.run('DELETE FROM password_resets WHERE id = ?', [row.id]);
+      return res.status(400).json({ ok: false, error: 'Too many wrong attempts. Please request a new code.' });
+    }
+    const hash = crypto.createHash('sha256').update(String(code).trim()).digest('hex');
+    if (hash !== row.code_hash) {
+      const left = row.attempts_left - 1;
+      if (left <= 0) {
+        await db.run('DELETE FROM password_resets WHERE id = ?', [row.id]);
+        return res.status(400).json({ ok: false, error: 'Wrong code. No attempts left — please request a new code.' });
+      }
+      await db.run('UPDATE password_resets SET attempts_left = ? WHERE id = ?', [left, row.id]);
+      return res.status(400).json({ ok: false, error: `Wrong code. ${left} attempt${left === 1 ? '' : 's'} left.`, attemptsLeft: left });
+    }
+    const p = row.identifier.includes('@')
+      ? await db.get('SELECT * FROM profiles WHERE LOWER(email) = LOWER(?)', [row.identifier])
+      : await findProfileByPhone(row.identifier);
+    if (!p) {
+      await db.run('DELETE FROM password_resets WHERE id = ?', [row.id]);
+      return res.status(400).json({ ok: false, error: 'No account found. Please request a new code.' });
+    }
+    const { salt, hash: pwHash } = hashPassword(String(newPassword));
+    await db.run('UPDATE profiles SET password_hash = ?, password_salt = ? WHERE id = ?', [pwHash, salt, p.id]);
     await db.run('DELETE FROM sessions WHERE profile_id = ?', [p.id]);
+    await db.run('DELETE FROM password_resets WHERE id = ?', [row.id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+
+// Admin-only: pending reset requests (code shown only when email is not
+// configured, so Support can relay it to the player).
+app.get('/api/admin/reset-requests', adminAuth, async (req, res) => {
+  try {
+    await db.run('DELETE FROM password_resets WHERE expires_at <= ?', [Date.now()]);
+    const rows = await db.all('SELECT * FROM password_resets ORDER BY created_at DESC');
+    res.json({
+      ok: true,
+      requests: rows.map((r) => ({
+        id: r.id, contact: r.contact, channel: r.channel,
+        code: r.code_plain || '', attemptsLeft: r.attempts_left,
+        expiresAt: r.expires_at, createdAt: r.created_at,
+      })),
+    });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+app.delete('/api/admin/reset-requests/:id', adminAuth, async (req, res) => {
+  try {
+    await db.run('DELETE FROM password_resets WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
