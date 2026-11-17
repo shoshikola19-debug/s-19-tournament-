@@ -1,0 +1,25 @@
+# Render blueprint for S_19 Tournament (free tier)
+# Deploy: push this repo to GitHub, then in Render Dashboard ->
+# "New +" -> "Blueprint" -> pick the repo. Render reads this file.
+# Free tier sleeps after ~15 min idle; first load after sleep is slow.
+# Live URL after deploy: https://s-19-tournament.onrender.com
+services:
+  - type: web
+    name: s-19-tournament
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Permanent database: set DATABASE_URL to a Neon Postgres connection
+      # string (Dashboard -> Environment). When it is set the app uses
+      # Neon and data survives restarts/redeploys; when it is empty the
+      # app falls back to a local SQLite file (lost on redeploy on the
+      # free tier — the seed file re-creates the 10 tournaments and the
+      # payment info on a fresh boot, but new bookings after deploy
+      # would be lost). The connection string holds a password, so it is
+      # marked sync: false and must never be committed.
+      - key: DATABASE_URL
+        sync: false
