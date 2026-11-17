@@ -1,0 +1,549 @@
+// S_19 Tournament — standalone server for Render (free tier)
+// Express + SQLite (local) or Postgres/Neon (DATABASE_URL).
+// Rebuilt from the Muse artifact es-19-tturnaamentt so the app lives on
+// its own domain (https://s-19-tournament.onrender.com) and Chrome can
+// install it as a separate app. Data seeded from data/seed.json — the
+// exact export of the artifact (10 tournaments, owner profile, wallet,
+// payment info). Nothing invented.
+'use strict';
+const crypto = require('crypto');
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const db = require('./db');
+
+const app = express();
+app.use(express.json({ limit: '1mb' }));
+app.use(express.static(path.join(__dirname, 'public')));
+
+const PORT = process.env.PORT || 3000;
+const OWNER_EMAIL = 'shoshikola19@gmail.com';
+const WITHDRAW_MIN = 100;
+const ROOM_REVEAL_MINUTES = 5;
+
+// ---- time helpers (Asia/Dhaka is UTC+6, no DST) ----
+function dhakaNow() { return new Date(Date.now() + 6 * 60 * 60 * 1000); }
+function dhakaDateStr(d = dhakaNow()) { return d.toISOString().slice(0, 10); }
+function dhakaTimeStr(d = dhakaNow()) { return d.toISOString().slice(11, 16); }
+function matchStartMs(t) {
+  const [y, mo, da] = t.match_date.split('-').map(Number);
+  const [h, mi] = t.match_time.split(':').map(Number);
+  return Date.UTC(y, mo - 1, da, h - 6, mi);
+}
+function roomRevealed(t) {
+  if (t.status === 'live' || t.status === 'finished') return true;
+  return Date.now() >= matchStartMs(t) - ROOM_REVEAL_MINUTES * 60 * 1000;
+}
+function matchStarted(t) { return Date.now() >= matchStartMs(t); }
+
+// ---- passwords / sessions ----
+function hashPassword(pw, salt = crypto.randomBytes(16).toString('hex')) {
+  const hash = crypto.scryptSync(pw, salt, 64).toString('hex');
+  return { salt, hash };
+}
+async function auth(req, res, next) {
+  const token = (req.headers.authorization || '').replace(/^Bearer /, '');
+  if (!token) return res.status(401).json({ ok: false, error: 'Login required' });
+  const s = await db.get('SELECT profile_id FROM sessions WHERE token = ?', [token]);
+  if (!s) return res.status(401).json({ ok: false, error: 'Session expired, login again' });
+  req.profileId = s.profile_id;
+  req.profile = await db.get('SELECT * FROM profiles WHERE id = ?', [s.profile_id]);
+  next();
+}
+async function adminAuth(req, res, next) {
+  await auth(req, res, async () => {
+    if (req.profile.email !== OWNER_EMAIL) {
+      return res.status(403).json({ ok: false, error: 'Only the owner can do this' });
+    }
+    next();
+  });
+}
+
+// Wallet math (computed from transactions, like the artifact).
+// Processed oldest-first: deposits/refunds/entries move the Deposit
+// Balance, prizes/spins move the Winning Balance, and a withdrawal
+// takes from Winning first, any remainder from Deposit. (That is how
+// the artifact's own seeded history nets out: deposits 100+100,
+// withdraw 200 -> deposit 0, winning 0, topup 200.) In normal flow a
+// withdrawal is capped at the Winning Balance, so the remainder path
+// never triggers for real requests.
+async function walletFor(profileId) {
+  const tx = await db.all(
+    "SELECT * FROM wallet_tx WHERE profile_id = ? ORDER BY created_at DESC, id DESC", [profileId]);
+  const ordered = [...tx].sort((a, b) =>
+    (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id - b.id));
+  let deposit = 0, winning = 0, topupTotal = 0;
+  for (const t of ordered) {
+    if (t.type === 'deposit' && t.status === 'approved') { deposit += t.amount; topupTotal += t.amount; }
+    else if (t.type === 'refund' && t.status === 'approved') deposit += t.amount;
+    else if (t.type === 'entry' && t.status === 'approved') deposit += t.amount; // stored negative
+    else if ((t.type === 'prize' || t.type === 'spin') && t.status === 'approved') winning += t.amount;
+    else if (t.type === 'withdraw') {
+      // Pending withdrawals hold the amount immediately; approved ones are final.
+      if (t.status === 'pending' || t.status === 'approved') {
+        let rest = -t.amount; // t.amount is stored negative
+        const fromWinning = Math.min(winning, rest);
+        winning -= fromWinning; rest -= fromWinning;
+        deposit -= rest;
+      }
+    }
+  }
+  return { depositBalance: deposit, winningBalance: winning, topupTotal, transactions: tx };
+}
+
+// ---- slot rules (server-enforced, same as the artifact) ----
+function fixedSlots(category, subcategory) {
+  const key = category + '/' + subcategory;
+  const map = {
+    'br/Solo': 48, 'br/Duo': 50, 'br/Esports PRO': 50,
+    'cs/4v4': 8, 'cs/1v1': 2, 'cs/Headshot Only': 8,
+    'lw/1v1': 2, 'lw/2v2': 4, 'lw/Lose To Win': 2, 'lw/Headshot Only': 8,
+  };
+  return map[key] ?? null;
+}
+const BR_SPLIT = { 1: 90, 2: 70, 3: 40, 4: 30, 5: 20 }; // BR Solo/Duo prize split
+
+// ---- seed from data/seed.json (exact artifact export) ----
+async function seed() {
+  const count = await db.get('SELECT COUNT(*) AS n FROM tournaments');
+  if (count && count.n > 0) return;
+  const seed = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'seed.json'), 'utf8'));
+  const now = new Date().toISOString();
+  const p = seed.profile;
+  await db.run(
+    'INSERT INTO profiles (id, account_id, username, email, phone, ign, uid, password_hash, password_salt, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+    [1, p.accountId, p.username, p.email, p.phone, p.ign, p.uid, null, null, now]);
+  for (const t of seed.tournaments) {
+    await db.run(
+      'INSERT INTO tournaments (id, title, category, subcategory, mode, match_type, map, pov, match_date, match_time, total_slots, entry_fee, prize_pool, per_kill_prize, per_kill_points, room_id, room_password, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      [t.id, t.title, t.category, t.subcategory, t.mode, t.matchType, t.map, t.pov, t.matchDate, t.matchTime, t.totalSlots, t.entryFee, t.prizePool, t.perKillPrize, t.perKillPoints, t.roomId, t.roomPassword, t.status]);
+  }
+  for (const w of seed.walletTransactions) {
+    await db.run(
+      'INSERT INTO wallet_tx (id, profile_id, type, amount, method, account_number, trx_id, note, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+      [w.id, 1, w.type, w.type === 'withdraw' ? -Math.abs(w.amount) : w.amount, w.method, w.accountNumber, w.trxId || '', w.note, w.status, w.createdAt]);
+  }
+  const pay = seed.paymentInfo;
+  for (const [k, v] of Object.entries({ bkash: pay.bkashNumber, nagad: pay.nagadNumber, rocket: pay.rocketNumber, groupLink: pay.groupLink })) {
+    await db.run('INSERT INTO settings (key, value) VALUES (?,?)', [k, v || '']);
+  }
+  if (db.getEngine() === 'postgres') {
+    for (const tbl of ['profiles', 'tournaments', 'wallet_tx']) {
+      await db.run(`SELECT setval(pg_get_serial_sequence('${tbl}','id'), (SELECT MAX(id) FROM ${tbl}))`);
+    }
+  }
+  console.log('Seeded from data/seed.json: 10 tournaments, owner profile, wallet history.');
+}
+
+// ---- public helpers ----
+function publicTournament(t, bookings, results, reveal) {
+  return {
+    id: t.id, title: t.title, category: t.category, subcategory: t.subcategory,
+    mode: t.mode, matchType: t.match_type, map: t.map, pov: t.pov,
+    matchDate: t.match_date, matchTime: t.match_time, totalSlots: t.total_slots,
+    entryFee: t.entry_fee, prizePool: t.prize_pool, perKillPrize: t.per_kill_prize,
+    perKillPoints: t.per_kill_points, status: t.status,
+    hasRoom: !!(t.room_id && t.room_password),
+    roomId: reveal ? t.room_id : '', roomPassword: reveal ? t.room_password : '',
+    roomRevealed: reveal, bookings, results,
+  };
+}
+async function loadTournaments(revealAll) {
+  const rows = await db.all('SELECT * FROM tournaments ORDER BY match_date, match_time, id');
+  const out = [];
+  for (const t of rows) {
+    const bookings = await db.all('SELECT * FROM bookings WHERE tournament_id = ? ORDER BY slot_number', [t.id]);
+    const results = await db.all('SELECT * FROM results WHERE tournament_id = ? ORDER BY placement', [t.id]);
+    out.push(publicTournament(t, bookings, results, revealAll ? true : roomRevealed(t)));
+  }
+  return out;
+}
+
+app.get('/api/health', (req, res) => res.json({ ok: true, engine: db.getEngine() }));
+
+// ---- auth ----
+app.post('/api/register', async (req, res) => {
+  try {
+    const { username, email, phone, password } = req.body || {};
+    if (!username || !email || !phone || !password || String(password).length < 4) {
+      return res.status(400).json({ ok: false, error: 'Username, email, phone and a 4+ character password are required' });
+    }
+    if (!/^\+8801[3-9]\d{8}$/.test(String(phone))) {
+      return res.status(400).json({ ok: false, error: 'Phone must be a Bangladeshi number starting +8801' });
+    }
+    const existing = await db.get('SELECT * FROM profiles WHERE email = ? OR username = ?', [email, username]);
+    if (existing && existing.password_hash) {
+      return res.status(400).json({ ok: false, error: 'An account with this email or username already exists — login instead' });
+    }
+    const { salt, hash } = hashPassword(String(password));
+    let profileId;
+    if (existing) {
+      // Owner restore: the seeded profile has no password yet; setting it here activates it.
+      await db.run('UPDATE profiles SET password_hash = ?, password_salt = ?, phone = ? WHERE id = ?',
+        [hash, salt, phone, existing.id]);
+      profileId = existing.id;
+    } else {
+      const maxAcc = await db.get('SELECT MAX(account_id) AS m FROM profiles');
+      const accountId = (maxAcc && maxAcc.m) ? maxAcc.m + 1 : 100001;
+      profileId = await db.insert(
+        'INSERT INTO profiles (account_id, username, email, phone, ign, uid, password_hash, password_salt, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+        [accountId, username, email, phone, username, '', hash, salt, new Date().toISOString()]);
+    }
+    const token = crypto.randomBytes(32).toString('hex');
+    await db.run('INSERT INTO sessions (token, profile_id, created_at) VALUES (?,?,?)',
+      [token, profileId, new Date().toISOString()]);
+    const profile = await db.get('SELECT * FROM profiles WHERE id = ?', [profileId]);
+    res.json({ ok: true, token, profile: safeProfile(profile) });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+
+app.post('/api/login', async (req, res) => {
+  try {
+    const { emailOrUsername, password } = req.body || {};
+    const p = await db.get('SELECT * FROM profiles WHERE email = ? OR username = ?',
+      [emailOrUsername, emailOrUsername]);
+    if (!p || !p.password_hash) return res.status(400).json({ ok: false, error: 'No account found — register first' });
+    const { hash } = hashPassword(String(password), p.password_salt);
+    if (hash !== p.password_hash) return res.status(400).json({ ok: false, error: 'Wrong password' });
+    const token = crypto.randomBytes(32).toString('hex');
+    await db.run('INSERT INTO sessions (token, profile_id, created_at) VALUES (?,?,?)',
+      [token, p.id, new Date().toISOString()]);
+    res.json({ ok: true, token, profile: safeProfile(p) });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+
+function safeProfile(p) {
+  if (!p) return null;
+  return {
+    id: p.id, accountId: p.account_id, username: p.username, email: p.email,
+    phone: p.phone, ign: p.ign, uid: p.uid,
+    isAdmin: p.email === OWNER_EMAIL,
+    spunToday: p.last_spin_date === dhakaDateStr(),
+  };
+}
+
+app.get('/api/me', auth, async (req, res) => {
+  const w = await walletFor(req.profileId);
+  res.json({ ok: true, profile: safeProfile(req.profile), wallet: w });
+});
+
+app.post('/api/profile', auth, async (req, res) => {
+  const { ign, uid, username } = req.body || {};
+  if (uid && !/^\d{5,12}$/.test(String(uid))) {
+    return res.status(400).json({ ok: false, error: 'Free Fire UID must be 5–12 digits' });
+  }
+  await db.run('UPDATE profiles SET ign = ?, uid = ?, username = ? WHERE id = ?',
+    [ign || req.profile.ign, uid ?? req.profile.uid, username || req.profile.username, req.profileId]);
+  const p = await db.get('SELECT * FROM profiles WHERE id = ?', [req.profileId]);
+  res.json({ ok: true, profile: safeProfile(p) });
+});
+
+// ---- tournaments ----
+app.get('/api/tournaments', async (req, res) => {
+  res.json({ ok: true, tournaments: await loadTournaments(false) });
+});
+app.get('/api/tournaments/admin', adminAuth, async (req, res) => {
+  res.json({ ok: true, tournaments: await loadTournaments(true) });
+});
+
+app.post('/api/tournaments', adminAuth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const slots = fixedSlots(b.category, b.subcategory);
+    if (slots == null) return res.status(400).json({ ok: false, error: 'Unknown category/subcategory' });
+    if (!b.title || String(b.title).length > 160) {
+      return res.status(400).json({ ok: false, error: 'Title: must be 160 characters or fewer' });
+    }
+    const id = await db.insert(
+      'INSERT INTO tournaments (title, category, subcategory, mode, match_type, map, pov, match_date, match_time, total_slots, entry_fee, prize_pool, per_kill_prize, per_kill_points, room_id, room_password, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      [b.title, b.category, b.subcategory, b.mode || 'solo', b.matchType || 'battle_royale',
+       b.map || 'Bermuda', b.pov || 'TPP', b.matchDate, b.matchTime, slots,
+       b.entryFee || 0, b.prizePool || 0, b.perKillPrize || 0, b.perKillPoints || 0,
+       b.roomId || '', b.roomPassword || '', 'upcoming']);
+    res.json({ ok: true, id });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+
+app.put('/api/tournaments/:id', adminAuth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const t = await db.get('SELECT * FROM tournaments WHERE id = ?', [req.params.id]);
+    if (!t) return res.status(404).json({ ok: false, error: 'Match not found' });
+    const slots = fixedSlots(b.category || t.category, b.subcategory || t.subcategory);
+    await db.run(
+      'UPDATE tournaments SET title=?, category=?, subcategory=?, mode=?, match_type=?, map=?, pov=?, match_date=?, match_time=?, total_slots=?, entry_fee=?, prize_pool=?, per_kill_prize=?, per_kill_points=?, room_id=?, room_password=? WHERE id=?',
+      [b.title ?? t.title, b.category ?? t.category, b.subcategory ?? t.subcategory,
+       b.mode ?? t.mode, b.matchType ?? t.match_type, b.map ?? t.map, b.pov ?? t.pov,
+       b.matchDate ?? t.match_date, b.matchTime ?? t.match_time, slots ?? t.total_slots,
+       b.entryFee ?? t.entry_fee, b.prizePool ?? t.prize_pool,
+       b.perKillPrize ?? t.per_kill_prize, b.perKillPoints ?? t.per_kill_points,
+       b.roomId ?? t.room_id, b.roomPassword ?? t.room_password, t.id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+
+app.delete('/api/tournaments/:id', adminAuth, async (req, res) => {
+  const t = await db.get('SELECT * FROM tournaments WHERE id = ?', [req.params.id]);
+  if (!t) return res.status(404).json({ ok: false, error: 'Match not found' });
+  const active = await db.all("SELECT * FROM bookings WHERE tournament_id = ? AND status = 'approved'", [t.id]);
+  for (const bk of active) {
+    const fee = t.entry_fee;
+    if (fee > 0) {
+      await db.run("INSERT INTO wallet_tx (profile_id, type, amount, note, status, created_at) VALUES (?,?,?,?, 'approved', ?)",
+        [bk.profile_id, 'refund', fee, 'Refund: match deleted', new Date().toISOString()]);
+    }
+  }
+  await db.run('DELETE FROM bookings WHERE tournament_id = ?', [t.id]);
+  await db.run('DELETE FROM results WHERE tournament_id = ?', [t.id]);
+  await db.run('DELETE FROM tournaments WHERE id = ?', [t.id]);
+  res.json({ ok: true });
+});
+
+app.post('/api/tournaments/:id/status', adminAuth, async (req, res) => {
+  const { status } = req.body || {};
+  if (!['upcoming', 'live', 'closed', 'finished'].includes(status)) {
+    return res.status(400).json({ ok: false, error: 'Invalid status' });
+  }
+  await db.run('UPDATE tournaments SET status = ? WHERE id = ?', [status, req.params.id]);
+  res.json({ ok: true });
+});
+
+app.post('/api/tournaments/:id/cancel', adminAuth, async (req, res) => {
+  const t = await db.get('SELECT * FROM tournaments WHERE id = ?', [req.params.id]);
+  if (!t) return res.status(404).json({ ok: false, error: 'Match not found' });
+  const active = await db.all("SELECT * FROM bookings WHERE tournament_id = ? AND status IN ('pending','approved')", [t.id]);
+  for (const bk of active) {
+    if (t.entry_fee > 0) {
+      await db.run("INSERT INTO wallet_tx (profile_id, type, amount, note, status, created_at) VALUES (?,?,?,?, 'approved', ?)",
+        [bk.profile_id, 'refund', t.entry_fee, 'Refund: match cancelled', new Date().toISOString()]);
+    }
+    await db.run("UPDATE bookings SET status = 'rejected' WHERE id = ?", [bk.id]);
+  }
+  await db.run("UPDATE tournaments SET status = 'cancelled' WHERE id = ?", [t.id]);
+  res.json({ ok: true });
+});
+
+// ---- bookings (join a match) ----
+app.post('/api/tournaments/:id/book', auth, async (req, res) => {
+  try {
+    const t = await db.get('SELECT * FROM tournaments WHERE id = ?', [req.params.id]);
+    if (!t) return res.status(404).json({ ok: false, error: 'Match not found' });
+    if (t.status !== 'upcoming') return res.status(400).json({ ok: false, error: 'This match is not open for joining' });
+    if (matchStarted(t)) return res.status(400).json({ ok: false, error: 'Match already started' });
+    const { slotNumber, playerName } = req.body || {};
+    const slot = Number(slotNumber);
+    if (!slot || slot < 1 || slot > t.total_slots) {
+      return res.status(400).json({ ok: false, error: 'Pick a free slot number' });
+    }
+    if (!req.profile.uid) {
+      return res.status(400).json({ ok: false, error: 'Add your Free Fire UID in Edit Profile first' });
+    }
+    if (playerName && playerName !== req.profile.ign && playerName !== req.profile.username) {
+      return res.status(400).json({ ok: false, error: 'Join only with your own registered in-game name' });
+    }
+    const taken = await db.get(
+      "SELECT id FROM bookings WHERE tournament_id = ? AND slot_number = ? AND status IN ('pending','approved')",
+      [t.id, slot]);
+    if (taken) return res.status(400).json({ ok: false, error: 'That slot is already taken' });
+    const mine = await db.get(
+      "SELECT id FROM bookings WHERE tournament_id = ? AND profile_id = ? AND status IN ('pending','approved')",
+      [t.id, req.profileId]);
+    if (mine) return res.status(400).json({ ok: false, error: 'You already booked a slot in this match' });
+    const w = await walletFor(req.profileId);
+    if (t.entry_fee > w.depositBalance) {
+      return res.status(400).json({ ok: false, error: 'Not enough Deposit Balance — add money first' });
+    }
+    if (t.entry_fee > 0) {
+      await db.run("INSERT INTO wallet_tx (profile_id, type, amount, note, status, created_at) VALUES (?,?,?,?,'approved',?)",
+        [req.profileId, 'entry', -t.entry_fee, 'Entry fee: ' + t.title, new Date().toISOString()]);
+    }
+    const id = await db.insert(
+      "INSERT INTO bookings (tournament_id, profile_id, slot_number, player_name, status, created_at) VALUES (?,?,?,?,'pending',?)",
+      [t.id, req.profileId, slot, playerName || req.profile.ign, new Date().toISOString()]);
+    res.json({ ok: true, id });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+
+app.post('/api/bookings/:id/cancel', auth, async (req, res) => {
+  const bk = await db.get('SELECT * FROM bookings WHERE id = ?', [req.params.id]);
+  if (!bk || bk.profile_id !== req.profileId) return res.status(404).json({ ok: false, error: 'Booking not found' });
+  if (bk.status === 'cancelled') return res.json({ ok: true });
+  const t = await db.get('SELECT * FROM tournaments WHERE id = ?', [bk.tournament_id]);
+  if (t && t.entry_fee > 0 && bk.status === 'approved') {
+    await db.run("INSERT INTO wallet_tx (profile_id, type, amount, note, status, created_at) VALUES (?,?,?,?, 'approved', ?)",
+      [req.profileId, 'refund', t.entry_fee, 'Refund: booking cancelled', new Date().toISOString()]);
+  }
+  await db.run("UPDATE bookings SET status = 'cancelled' WHERE id = ?", [bk.id]);
+  res.json({ ok: true });
+});
+
+app.post('/api/bookings/:id/review', adminAuth, async (req, res) => {
+  const bk = await db.get('SELECT * FROM bookings WHERE id = ?', [req.params.id]);
+  if (!bk) return res.status(404).json({ ok: false, error: 'Booking not found' });
+  const approve = !!req.body.approve;
+  if (!approve && bk.status === 'approved') {
+    const t = await db.get('SELECT * FROM tournaments WHERE id = ?', [bk.tournament_id]);
+    if (t && t.entry_fee > 0) {
+      await db.run("INSERT INTO wallet_tx (profile_id, type, amount, note, status, created_at) VALUES (?,?,?,?, 'approved', ?)",
+        [bk.profile_id, 'refund', t.entry_fee, 'Refund: join rejected', new Date().toISOString()]);
+    }
+  }
+  await db.run('UPDATE bookings SET status = ? WHERE id = ?', [approve ? 'approved' : 'rejected', bk.id]);
+  res.json({ ok: true });
+});
+
+// ---- wallet: deposit / withdraw ----
+function validTrx(trx) { return typeof trx === 'string' && /^[A-Za-z0-9]{8,12}$/.test(trx); }
+
+app.post('/api/deposit', auth, async (req, res) => {
+  try {
+    const { amount, method, senderNumber, trxId } = req.body || {};
+    const amt = Number(amount);
+    if (!amt || amt <= 0) return res.status(400).json({ ok: false, error: 'Enter an amount' });
+    if (!['bkash', 'nagad', 'rocket'].includes(method)) return res.status(400).json({ ok: false, error: 'Pick bKash, Nagad or Rocket' });
+    if (!validTrx(trxId)) {
+      return res.status(400).json({ ok: false, error: 'Wrong TrxID — it must be 8–12 letters or digits' });
+    }
+    const dup = await db.get('SELECT id FROM wallet_tx WHERE UPPER(trx_id) = ? AND type = ?', [trxId.toUpperCase(), 'deposit']);
+    if (dup) return res.status(400).json({ ok: false, error: 'This TrxID was already used' });
+    const id = await db.insert(
+      "INSERT INTO wallet_tx (profile_id, type, amount, method, account_number, trx_id, note, status, created_at) VALUES (?,?,?,?,?,?,?,'pending',?)",
+      [req.profileId, 'deposit', amt, method, senderNumber || '', trxId.toUpperCase(), 'Deposit request', new Date().toISOString()]);
+    res.json({ ok: true, id });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+
+app.post('/api/withdraw', auth, async (req, res) => {
+  try {
+    const { amount, method, accountNumber } = req.body || {};
+    const amt = Number(amount);
+    if (!amt || amt < WITHDRAW_MIN) {
+      return res.status(400).json({ ok: false, error: 'Minimum withdrawal is ৳' + WITHDRAW_MIN });
+    }
+    const now = dhakaNow();
+    const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
+    if (mins < 10 * 60 || mins > 21 * 60 + 30) {
+      return res.status(400).json({ ok: false, error: 'Withdrawals are open 10:00 AM – 9:30 PM (Dhaka time)' });
+    }
+    const w = await walletFor(req.profileId);
+    if (amt > w.winningBalance) {
+      return res.status(400).json({ ok: false, error: 'Only Winning Balance can be withdrawn' });
+    }
+    const id = await db.insert(
+      "INSERT INTO wallet_tx (profile_id, type, amount, method, account_number, trx_id, note, status, created_at) VALUES (?,?,?,?,?,?,'pending',?)",
+      [req.profileId, 'withdraw', -amt, method || 'bkash', accountNumber || '', '', 'Withdraw request', new Date().toISOString()]);
+    res.json({ ok: true, id });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+
+app.post('/api/transactions/:id/review', adminAuth, async (req, res) => {
+  const tx = await db.get('SELECT * FROM wallet_tx WHERE id = ?', [req.params.id]);
+  if (!tx) return res.status(404).json({ ok: false, error: 'Request not found' });
+  if (tx.status !== 'pending') return res.status(400).json({ ok: false, error: 'Already reviewed' });
+  await db.run('UPDATE wallet_tx SET status = ? WHERE id = ?', [req.body.approve ? 'approved' : 'rejected', tx.id]);
+  res.json({ ok: true });
+});
+
+// ---- results & leaderboard ----
+app.post('/api/results', adminAuth, async (req, res) => {
+  try {
+    const { tournamentId, profileId, playerName, placement, kills } = req.body || {};
+    const t = await db.get('SELECT * FROM tournaments WHERE id = ?', [tournamentId]);
+    if (!t) return res.status(404).json({ ok: false, error: 'Match not found' });
+    const place = Number(placement) || 0;
+    const k = Number(kills) || 0;
+    let prize = req.body.prize != null ? Number(req.body.prize) : 0;
+    if (req.body.prize == null && (t.category === 'br' && (t.subcategory === 'Solo' || t.subcategory === 'Duo'))) {
+      prize = (BR_SPLIT[place] || 0) + k * t.per_kill_prize;
+    }
+    const placePoints = place === 1 ? 10 : place === 2 ? 8 : place === 3 ? 6 : place === 4 ? 4 : place === 5 ? 2 : 0;
+    const points = placePoints + k * t.per_kill_points;
+    const existing = await db.get('SELECT * FROM results WHERE tournament_id = ? AND profile_id = ?', [tournamentId, profileId]);
+    if (existing) {
+      await db.run('UPDATE results SET placement=?, kills=?, points=?, prize=? WHERE id=?',
+        [place, k, points, prize, existing.id]);
+      if (prize > 0 && !existing.prize_paid && profileId) {
+        await db.run("INSERT INTO wallet_tx (profile_id, type, amount, note, status, created_at) VALUES (?,?,?,?,'approved',?)",
+          [profileId, 'prize', prize, 'Prize: ' + t.title, new Date().toISOString()]);
+        await db.run('UPDATE results SET prize_paid = 1 WHERE id = ?', [existing.id]);
+      }
+      return res.json({ ok: true, id: existing.id });
+    }
+    const id = await db.insert(
+      'INSERT INTO results (tournament_id, profile_id, player_name, placement, kills, points, prize, prize_paid, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+      [tournamentId, profileId || 0, playerName || '', place, k, points, prize, 0, new Date().toISOString()]);
+    if (prize > 0 && profileId) {
+      await db.run("INSERT INTO wallet_tx (profile_id, type, amount, note, status, created_at) VALUES (?,?,?,?,'approved',?)",
+        [profileId, 'prize', prize, 'Prize: ' + t.title, new Date().toISOString()]);
+      await db.run('UPDATE results SET prize_paid = 1 WHERE id = ?', [id]);
+    }
+    res.json({ ok: true, id });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+
+app.delete('/api/results/:id', adminAuth, async (req, res) => {
+  const r = await db.get('SELECT * FROM results WHERE id = ?', [req.params.id]);
+  if (!r) return res.status(404).json({ ok: false, error: 'Result not found' });
+  if (r.prize_paid) return res.status(400).json({ ok: false, error: 'Prize already paid — edit it instead' });
+  await db.run('DELETE FROM results WHERE id = ?', [r.id]);
+  res.json({ ok: true });
+});
+
+app.get('/api/leaderboard', async (req, res) => {
+  const rows = await db.all(
+    `SELECT r.profile_id, r.player_name,
+       COUNT(*) AS matches, SUM(CASE WHEN r.placement = 1 THEN 1 ELSE 0 END) AS wins,
+       SUM(r.kills) AS kills, SUM(r.points) AS points
+     FROM results r GROUP BY r.profile_id, r.player_name ORDER BY points DESC, wins DESC`);
+  res.json({ ok: true, standings: rows });
+});
+
+// ---- daily spin ----
+app.post('/api/spin', auth, async (req, res) => {
+  if (req.profile.last_spin_date === dhakaDateStr()) {
+    return res.status(400).json({ ok: false, error: 'You already spun today — come back tomorrow' });
+  }
+  const segments = [0, 5, 10, 0, 20, 5, 0, 50];
+  const idx = Math.floor(Math.random() * segments.length);
+  const prize = segments[idx];
+  if (prize > 0) {
+    await db.run("INSERT INTO wallet_tx (profile_id, type, amount, note, status, created_at) VALUES (?,?,?,?,'approved',?)",
+      [req.profileId, 'spin', prize, 'Daily Spin prize', new Date().toISOString()]);
+  }
+  await db.run('UPDATE profiles SET last_spin_date = ? WHERE id = ?', [dhakaDateStr(), req.profileId]);
+  res.json({ ok: true, segment: idx, prize });
+});
+
+// ---- payment info ----
+app.get('/api/payment-info', async (req, res) => {
+  const rows = await db.all('SELECT key, value FROM settings');
+  const info = { bkashNumber: '', nagadNumber: '', rocketNumber: '', groupLink: '' };
+  for (const r of rows) {
+    if (r.key === 'bkash') info.bkashNumber = r.value;
+    if (r.key === 'nagad') info.nagadNumber = r.value;
+    if (r.key === 'rocket') info.rocketNumber = r.value;
+    if (r.key === 'groupLink') info.groupLink = r.value;
+  }
+  res.json({ ok: true, ...info });
+});
+app.put('/api/payment-info', adminAuth, async (req, res) => {
+  const b = req.body || {};
+  for (const [k, v] of Object.entries({ bkash: b.bkashNumber, nagad: b.nagadNumber, rocket: b.rocketNumber, groupLink: b.groupLink })) {
+    if (v !== undefined) {
+      await db.run('INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [k, v || '']);
+    }
+  }
+  res.json({ ok: true });
+});
+
+// ---- SPA fallback (everything else serves the app) ----
+app.get('*', (req, res) => {
+  if (req.path.startsWith('/api/')) return res.status(404).json({ ok: false, error: 'Unknown API' });
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+(async () => {
+  await db.init();
+  await seed();
+  app.listen(PORT, () => console.log(`S_19 Tournament live on port ${PORT} (db: ${db.getEngine()})`));
+})();
