@@ -345,10 +345,24 @@ app.post('/api/tournaments/:id/book', auth, async (req, res) => {
     if (!t) return res.status(404).json({ ok: false, error: 'Match not found' });
     if (t.status !== 'upcoming') return res.status(400).json({ ok: false, error: 'This match is not open for joining' });
     if (matchStarted(t)) return res.status(400).json({ ok: false, error: 'Match already started' });
-    const { slotNumber, playerName } = req.body || {};
+    const { slotNumber, playerName, squadNames } = req.body || {};
     const slot = Number(slotNumber);
     if (!slot || slot < 1 || slot > t.total_slots) {
       return res.status(400).json({ ok: false, error: 'Pick a free slot number' });
+    }
+    // Squad names (optional): squad leader lists up to 3 teammates.
+    let squad = [];
+    if (squadNames !== undefined && squadNames !== null) {
+      if (!Array.isArray(squadNames)) {
+        return res.status(400).json({ ok: false, error: 'Squad names must be a list' });
+      }
+      squad = squadNames.map((n) => String(n).trim()).filter(Boolean);
+      if (squad.length > 3) {
+        return res.status(400).json({ ok: false, error: 'A squad has at most 3 teammates besides you' });
+      }
+      if (squad.some((n) => n.length > 40)) {
+        return res.status(400).json({ ok: false, error: 'Squad names must be 40 characters or fewer' });
+      }
     }
     if (!req.profile.uid) {
       return res.status(400).json({ ok: false, error: 'Add your Free Fire UID in Edit Profile first' });
@@ -373,8 +387,8 @@ app.post('/api/tournaments/:id/book', auth, async (req, res) => {
         [req.profileId, 'entry', -t.entry_fee, 'Entry fee: ' + t.title, new Date().toISOString()]);
     }
     const id = await db.insert(
-      "INSERT INTO bookings (tournament_id, profile_id, slot_number, player_name, status, created_at) VALUES (?,?,?,?,'pending',?)",
-      [t.id, req.profileId, slot, playerName || req.profile.ign, new Date().toISOString()]);
+      "INSERT INTO bookings (tournament_id, profile_id, slot_number, player_name, squad_names, status, created_at) VALUES (?,?,?,?,?, 'pending',?)",
+      [t.id, req.profileId, slot, playerName || req.profile.ign, JSON.stringify(squad), new Date().toISOString()]);
     res.json({ ok: true, id });
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
