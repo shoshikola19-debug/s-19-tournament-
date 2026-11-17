@@ -15,6 +15,38 @@ function saveToken(tk, remember) {
 }
 function clearToken() { token = ''; localStorage.removeItem('s19token'); sessionStorage.removeItem('s19token'); }
 let profile = null, wallet = null, tournaments = [], adminTournaments = [];
+// App display config from the server (admin-editable in App Settings).
+let appConfig = null;
+async function loadAppConfig() {
+  try { appConfig = (await api('/api/app-config')).config || null; } catch (e) { appConfig = null; }
+}
+function appName() { return (appConfig && appConfig.appName) || 'S_19 TOURNAMENT'; }
+function appNameHTML() {
+  const nm = appName();
+  const i = nm.lastIndexOf(' ');
+  return i > 0 ? `${esc(nm.slice(0, i))} <span class="red">${esc(nm.slice(i + 1))}</span>` : esc(nm);
+}
+function fmtClockMins(mins) {
+  const m = Math.max(0, Math.min(1439, Number(mins) || 0));
+  const h = Math.floor(m / 60), mm = m % 60;
+  const ap = h >= 12 ? 'PM' : 'AM';
+  return `${h % 12 || 12}:${String(mm).padStart(2, '0')} ${ap}`;
+}
+function fmtClockInput(mins) {
+  const m = Math.max(0, Math.min(1439, Number(mins) || 0));
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+function clockInputToMins(v) {
+  const [h, m] = String(v || '').split(':').map(Number);
+  if (!Number.isInteger(h) || !Number.isInteger(m)) return null;
+  return h * 60 + m;
+}
+function withdrawInfoText() {
+  const min = (appConfig && appConfig.withdrawMin) || 100;
+  const st = (appConfig && appConfig.withdrawStart) ?? 600;
+  const en = (appConfig && appConfig.withdrawEnd) ?? 1290;
+  return `Minimum ৳${min}. Open ${fmtClockMins(st)} – ${fmtClockMins(en)} Dhaka time.`;
+}
 let view = 'landing', category = 'br', subcategory = 'Solo', myFilter = 'all';
 let selectedMatch = null, selectedSlot = 0;
 // Daily Spin wheel state (server decides the result; the wheel only animates to it).
@@ -173,7 +205,7 @@ function landingHTML() {
   <div class="lang-toggle"><button class="${lang === 'en' ? 'on' : ''}" onclick="setLang('en')">EN</button><button class="${lang === 'bn' ? 'on' : ''}" onclick="setLang('bn')">বাং</button></div>
   <div class="hero">
     <img class="logo" src="/logo.webp" alt="S_19 Tournament logo" onerror="this.src='/icon-512.png'">
-    <h1>S_19 <b>TOURNAMENT</b></h1>
+    <h1>${appNameHTML()}</h1>
     <div class="tagline">PLAY WIN ENJOY</div>
     <p class="muted" style="margin-top:10px">${esc(t('hero'))}</p>
     <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap">
@@ -362,17 +394,25 @@ const LW1V1_SHORT = [
   'জেতা টাকা ম্যাচ শেষের ৩০ মিনিটের মধ্যে অ্যাকাউন্টে যোগ হবে।',
   '🔴 "S_19 TOURNAMENT ADMIN"-এর সিদ্ধান্তই চূড়ান্ত সিদ্ধান্ত 🔴',
 ];
+const NOTICE_DEFAULT_RULES = [
+  'নিজের স্লট নম্বর মনে রাখবেন।',
+  'Room Details থেকে পাওয়া ID ও Password দিয়ে কাস্টম রুমে ঢুকবেন।',
+  'Observer থেকে নিজের স্লটে যাবেন।',
+  'স্লটে সমস্যা হলে গেমে মেসেজ না দিয়ে Voice On করে হোস্টকে জানাবেন।',
+  '⚠ শৃঙ্খলা বজায় রাখবেন — অযথা ভয়েস অন করে চিল্লাচিল্লি বা বিশৃঙ্খলা করবেন না। এটি টুর্নামেন্টের পরিবেশ নষ্ট করে।',
+  '📹 ভিডিও রেকর্ড (Screen Record) বাধ্যতামূলক: আইডি-পাসওয়ার্ড নেওয়া থেকে শুরু করে ম্যাচ স্টার্ট হওয়া পর্যন্ত পুরো সময়টা ভিডিও করে রাখবেন। ভিডিও প্রমাণ ছাড়া কোনো প্রকার রিফান্ড (Refund) দাবি করলে তা গ্রহণযোগ্য হবে না।',
+];
+function noticeRules() {
+  const raw = (appConfig && appConfig.noticeRules) || '';
+  const lines = raw.split('\n').map((s) => s.trim()).filter(Boolean);
+  return lines.length ? lines : NOTICE_DEFAULT_RULES;
+}
 function showNotice(stay) {
   modalRoot.innerHTML = `<div class="overlay center" onclick="if(event.target===this)closeModal()"><div class="notice-sheet">
   <div class="center"><img class="logo" src="/logo.webp" onerror="this.src='/icon-512.png'"><h2 style="margin-top:8px;letter-spacing:2px">WELCOME NOTICE</h2></div>
   <div class="notice-scroll" onscroll="noticeScrolled(this)">
     <ol class="notice-bn">
-      <li>নিজের স্লট নম্বর মনে রাখবেন।</li>
-      <li>Room Details থেকে পাওয়া ID ও Password দিয়ে কাস্টম রুমে ঢুকবেন।</li>
-      <li>Observer থেকে নিজের স্লটে যাবেন।</li>
-      <li>স্লটে সমস্যা হলে গেমে মেসেজ না দিয়ে Voice On করে হোস্টকে জানাবেন।</li>
-      <li>⚠ শৃঙ্খলা বজায় রাখবেন — অযথা ভয়েস অন করে চিল্লাচিল্লি বা বিশৃঙ্খলা করবেন না। এটি টুর্নামেন্টের পরিবেশ নষ্ট করে।</li>
-      <li>📹 ভিডিও রেকর্ড (Screen Record) বাধ্যতামূলক: আইডি-পাসওয়ার্ড নেওয়া থেকে শুরু করে ম্যাচ স্টার্ট হওয়া পর্যন্ত পুরো সময়টা ভিডিও করে রাখবেন। ভিডিও প্রমাণ ছাড়া কোনো প্রকার রিফান্ড (Refund) দাবি করলে তা গ্রহণযোগ্য হবে না।</li>
+      ${noticeRules().map((r) => `<li>${esc(r)}</li>`).join('')}
     </ol>
     <h3>🏆 LW 1v1 Match Rules (সংক্ষেপে)</h3>
     <ol class="notice-bn">
@@ -414,7 +454,7 @@ const LW1V1_RULES = ['সন্দেহজনক User কে কোনো ন�
 function topbarHTML() {
   const upcomingMine = tournaments.filter((m) => (m.status === 'upcoming' || m.status === 'live') && m.bookings.some((b) => profile && b.profile_id === profile.id && (b.status === 'pending' || b.status === 'approved'))).length;
   return `<div class="topbar"><img class="logo-sm" src="/logo.webp" onerror="this.src='/icon-192.png'">
-  <div><b>S_19 <span class="red">TOURNAMENT</span></b><div class="muted" style="font-size:11px">WELCOME BACK, ${esc(profile ? profile.username.toUpperCase() : 'PLAYER')} ${profile && profile.isAdmin ? '<span class="admin-badge">ADMIN</span>' : ''}</div></div>
+  <div><b>${appNameHTML()}</b><div class="muted" style="font-size:11px">WELCOME BACK, ${esc(profile ? profile.username.toUpperCase() : 'PLAYER')} ${profile && profile.isAdmin ? '<span class="admin-badge">ADMIN</span>' : ''}</div></div>
   <div class="sp"></div>
   ${profile ? `<span class="id-chip">S_19 ID #${profile.accountId}</span>` : ''}
   <button class="bell-btn" onclick="view='mymatches';render()" aria-label="Notifications">🔔${upcomingMine ? `<span class="bell-count">${upcomingMine}</span>` : ''}</button>
@@ -467,7 +507,7 @@ function playHTML() {
   <div class="banner-carousel">
     <div class="car-slide on" onclick="openCategory('br')">
       <img class="car-logo" src="/logo.webp" onerror="this.src='/icon-512.png'">
-      <div><b>S_19 TOURNAMENT</b><div class="car-sub">PLAY WIN ENJOY — Daily BR • CS • Lone Wolf matches. Win real Taka prizes!</div></div>
+      <div><b>${esc((appConfig && appConfig.bannerTitle) || 'S_19 TOURNAMENT')}</b><div class="car-sub">${esc((appConfig && appConfig.bannerSubtitle) || 'PLAY WIN ENJOY — Daily BR • CS • Lone Wolf matches. Win real Taka prizes!')}</div></div>
     </div>
     <div class="car-slide" onclick="openSupport()">
       <div class="car-ic">🎧</div>
@@ -702,7 +742,7 @@ function walletHTML() {
     <span class="menu-arrow">›</span></button>`;
   return `${topbarHTML()}<div class="wrap">
   <div class="wallet-hero">
-    <div class="wallet-hero-top"><span>💰 S_19 TOURNAMENT</span><b>WALLET</b></div>
+    <div class="wallet-hero-top"><span>💰 ${esc(appName())}</span><b>WALLET</b></div>
     <div class="wallet-hero-bal"><span>Available Balance</span><b>৳${dep + win}</b></div>
   </div>
   <div class="wallet-tiles">
@@ -741,7 +781,7 @@ window.openHowToAddMoney = () => openModal(`<h2>How to add money?</h2>
 window.openHowToWithdraw = () => openModal(`<h2>How to withdraw?</h2>
   <ol class="rulelist">
     <li>Only your <b>Winning Balance</b> can be withdrawn — Deposit Balance cannot.</li>
-    <li>Minimum withdrawal is <b>৳100</b>, open 10:00 AM – 9:30 PM Dhaka time.</li>
+    <li>${esc(withdrawInfoText())}</li>
     <li>Tap <b>Withdraw</b>, enter the amount and your bKash / Nagad / Rocket number, then send the request.</li>
     <li>The owner approves it and sends the money to your number.</li>
   </ol><button class="btn" style="margin-top:14px" onclick="closeModal()">Got it</button>`);
@@ -849,7 +889,7 @@ window.depVerify = async (method, amt) => {
   } catch (e) { const el = $('#dep-err'); if (el) el.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 };
 window.openWithdraw = () => {
-  openModal(`<h2>Withdraw</h2><p class="muted">Only Winning Balance can be withdrawn. Minimum ৳100. Open 10:00 AM – 9:30 PM Dhaka time.</p>
+  openModal(`<h2>Withdraw</h2><p class="muted">Only Winning Balance can be withdrawn. ${esc(withdrawInfoText())}</p>
   <div class="field"><label>Amount (৳)</label><input id="wd-amt" type="number" placeholder="100"></div>
   <div class="field"><label>Method</label><select id="wd-method"><option value="bkash">bKash</option><option value="nagad">Nagad</option><option value="rocket">Rocket</option></select></div>
   <div class="field"><label>Your account number</label><input id="wd-acc" placeholder="01XXXXXXXXX"></div>
@@ -1011,7 +1051,8 @@ window.openSpin = async () => {
 function spinHTML() {
   if (!spinState) { setTimeout(() => openSpin(), 0); return '<div class="wrap center" style="padding-top:60px"><div class="spinner"></div></div>'; }
   const p = spinState.passes || { br: 0, cs: 0, lw: 0, all: 0 };
-  const can = spinState.canSpin;
+  const spinOff = appConfig && appConfig.spinEnabled === false;
+  const can = spinState.canSpin && !spinOff;
   const counters = [['BR', p.br, '#43a047'], ['CS', p.cs, '#f39c12'], ['LW', p.lw, '#1e88e5'], ['ALL', p.all, '#e53935']].map(([lb, n, c]) =>
     `<div class="spin-counter"><span class="spin-count" style="color:${c};border-color:${c}">${n}</span><span>${lb}</span></div>`).join('');
   const labels = SPIN_SEGMENTS.map((s, i) => {
@@ -1028,8 +1069,9 @@ function spinHTML() {
     <div class="spin-hub">🎯</div>
   </div>
   <p class="muted center" style="margin-top:14px">Spin once a day to win a free match pass. A pass lets you join a match without paying the entry fee.</p>
-  <button id="spin-btn" class="btn spin-btn" style="margin-top:16px" ${can ? '' : 'disabled'} onclick="doSpin()">${can ? '🎡 Spin Now' : 'Spun today'}</button>
-  ${can ? '' : `<p id="spin-countdown" class="center spin-countdown">Next Spin in --:--:--</p>`}
+  ${spinOff ? '<p class="center" style="margin-top:10px;color:#ff5b63"><b>Daily Spin is currently disabled.</b></p>' : ''}
+  <button id="spin-btn" class="btn spin-btn" style="margin-top:16px" ${can ? '' : 'disabled'} onclick="doSpin()">${spinOff ? 'Daily Spin is off' : (can ? '🎡 Spin Now' : 'Spun today')}</button>
+  ${can ? '' : (spinOff ? '' : `<p id="spin-countdown" class="center spin-countdown">Next Spin in --:--:--</p>`)}
   </div>${bottomnavHTML()}`;
 }
 window.doSpin = async () => {
@@ -1075,6 +1117,10 @@ async function adminHTML() {
   try { resets = (await api('/api/admin/reset-requests')).requests || []; } catch (e) {}
   let pendTx = [];
   try { pendTx = (await api('/api/admin/transactions')).requests || []; } catch (e) {}
+  let appSettings = null;
+  try { appSettings = (await api('/api/settings')).settings || null; } catch (e) {}
+  let players = [];
+  try { players = (await api('/api/admin/players')).players || []; } catch (e) {}
   return `${topbarHTML()}<div class="wrap"><h2 style="margin-top:14px">Admin Panel</h2>
   <div class="card"><h3>Create custom room</h3>
     <div class="field"><label>Room name</label><input id="ad-title" maxlength="160" placeholder="e.g. BR Solo — Evening"></div>
@@ -1097,9 +1143,38 @@ async function adminHTML() {
     <div id="ad-err"></div>
     <button class="btn" style="margin-top:12px" onclick="createMatch()">Create Room</button></div>
   <div class="card"><h3>💰 Payment Requests (${pendTx.length})</h3>
-  ${pendTx.length ? pendTx.map((t) => `<div class="kv"><span><b>${t.type === 'withdraw' ? 'Withdraw' : 'Deposit'}</b> · ৳${Math.abs(t.amount)} · ${esc(t.username)}${t.accountId ? ` (S_19 ID #${t.accountId})` : ''} · ${esc(t.method || '—')} · ${t.type === 'withdraw' ? 'to ' : 'from '}${esc(t.accountNumber || '—')}${t.trxId ? ` · TrxID: <b>${esc(t.trxId)}</b>` : ''} · ${new Date(t.createdAt).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span><span><button class="btn-ghost btn-sm" onclick="reviewTx(${t.id},true)">Approve</button> <button class="btn-ghost btn-sm" onclick="reviewTx(${t.id},false)">Reject</button></span></div>`).join('')
+  <div class="warn" style="border-color:#7a1f1f;background:#2a0d0d;color:#ff9a9a">⚠ Verify this TrxID in your bKash/Nagad/Rocket app first — check the amount and sender number match before approving. Fake TrxIDs must be rejected.</div>
+  ${pendTx.length ? pendTx.map((t) => `<div class="payreq">
+    <div class="payreq-amt">৳${Math.abs(t.amount)} <span>${t.type === 'withdraw' ? 'Withdraw' : 'Deposit'} · ${esc(t.method || '—')}</span></div>
+    <div class="payreq-rows">
+      <div><span>Player</span><b>${esc(t.username)}${t.accountId ? ` (S_19 ID #${t.accountId})` : ''}</b></div>
+      <div><span>${t.type === 'withdraw' ? 'To number' : 'Sender number'}</span><b>${esc(t.accountNumber || '—')}</b></div>
+      ${t.trxId ? `<div><span>TrxID</span><b>${esc(t.trxId)}</b></div>` : ''}
+      <div><span>Time</span><b>${new Date(t.createdAt).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</b></div>
+    </div>
+    <label class="verify-row"><input type="checkbox" id="verify-${t.id}" onchange="toggleApproveBtn(${t.id})"> I verified this transaction in my bKash/Nagad app</label>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button id="approve-${t.id}" class="btn btn-sm" style="flex:1" disabled onclick="reviewTx(${t.id},true)">Approve</button>
+      <button class="btn-ghost btn-sm" style="flex:1" onclick="reviewTx(${t.id},false)">Reject</button>
+    </div>
+  </div>`).join('')
     : '<p class="muted">No pending payment requests.</p>'}
   <p class="muted">Approve adds the money to the player's Deposit Balance; Reject adds nothing.</p></div>
+  <div class="card"><h3>⚙️ App Settings</h3>
+    <div class="field"><label>App name</label><input id="as-name" maxlength="60" value="${esc((appSettings && appSettings.appName) || 'S_19 TOURNAMENT')}"></div>
+    <div class="field"><label>Welcome Notice rules (one rule per line)</label><textarea id="as-notice" rows="6">${esc((appSettings && appSettings.noticeRules) || '')}</textarea></div>
+    <div class="field"><label>Home banner title</label><input id="as-bannertitle" maxlength="120" value="${esc((appSettings && appSettings.bannerTitle) || '')}"></div>
+    <div class="field"><label>Home banner subtitle</label><input id="as-bannersub" maxlength="200" value="${esc((appSettings && appSettings.bannerSubtitle) || '')}"></div>
+    <div class="field"><label>Minimum withdrawal (৳)</label><input id="as-wdmin" type="number" min="0" max="100000" value="${(appSettings && appSettings.withdrawMin) ?? 100}"></div>
+    <div class="field"><label>Withdrawal window — from</label><input id="as-wdstart" type="time" value="${fmtClockInput((appSettings && appSettings.withdrawStart) ?? 600)}"></div>
+    <div class="field"><label>Withdrawal window — to</label><input id="as-wdend" type="time" value="${fmtClockInput((appSettings && appSettings.withdrawEnd) ?? 1290)}"></div>
+    <div class="field"><label><input id="as-spin" type="checkbox" style="width:auto" ${appSettings && appSettings.spinEnabled === false ? '' : 'checked'}> Daily Spin enabled</label></div>
+    <div id="as-err"></div>
+    <button class="btn" style="margin-top:12px" onclick="saveAppSettings()">Save App Settings</button></div>
+  <div class="card"><h3>👥 Players (${players.length})</h3>
+  ${players.length ? players.map((p) => `<div class="kv"><span>${esc(p.username)} · S_19 ID #${p.accountId}${p.banned ? ' · <b style="color:#ff5b63">BANNED</b>' : ''} · ${esc(p.phone || '—')} · Deposit ৳${p.depositBalance} · Winning ৳${p.winningBalance}</span>${p.isAdmin ? '<span class="muted">Owner</span>' : `<button class="btn-ghost btn-sm" onclick="toggleBan(${p.id},${p.banned ? 'false' : 'true'})">${p.banned ? 'Unban' : 'Ban'}</button>`}</span></div>`).join('')
+    : '<p class="muted">No players yet.</p>'}
+  <p class="muted">A banned player cannot login or join matches.</p></div>
   <h3 style="margin-top:20px">Matches (${adminTournaments.length})</h3>
   ${adminTournaments.map((m) => `<div class="card"><b>${esc(m.title)}</b> <span class="badge">#${m.id}</span>
     <div class="muted">${esc(m.matchDate)} ${esc(m.matchTime)} · ${esc(m.status)} · ${m.bookings.filter((b) => b.status === 'pending' || b.status === 'approved').length}/${m.totalSlots} booked · Room: ${m.roomId || '—'}</div>
@@ -1171,9 +1246,44 @@ window.setStatus = async (id, st) => { await api(`/api/tournaments/${id}/status`
 window.cancelMatch = async (id) => { if (confirm('Cancel this match? Entry fees will be refunded.')) { await api(`/api/tournaments/${id}/cancel`, { method: 'POST' }); await loadTournaments(); render(); } };
 window.deleteMatch = async (id) => { if (confirm('Delete this match? Entry fees will be refunded.')) { await api(`/api/tournaments/${id}`, { method: 'DELETE' }); await loadTournaments(); render(); } };
 window.reviewBooking = async (id, ok) => { await api(`/api/bookings/${id}/review`, { method: 'POST', body: JSON.stringify({ approve: ok }) }); render(); };
+window.toggleApproveBtn = (id) => {
+  const cb = $('#verify-' + id);
+  const btn = $('#approve-' + id);
+  if (cb && btn) btn.disabled = !cb.checked;
+};
 window.reviewTx = async (id, ok) => {
-  try { await api(`/api/transactions/${id}/review`, { method: 'POST', body: JSON.stringify({ approve: ok }) }); render(); toast(ok ? 'Payment approved — balance updated' : 'Payment request rejected'); }
+  try {
+    if (ok) {
+      const cb = $('#verify-' + id);
+      if (cb && !cb.checked) { toast('Tick "I verified this transaction" first'); return; }
+    }
+    await api(`/api/transactions/${id}/review`, { method: 'POST', body: JSON.stringify({ approve: ok }) }); render(); toast(ok ? 'Payment approved — balance updated' : 'Payment request rejected');
+  }
   catch (e) { toast(e.message); }
+};
+window.saveAppSettings = async () => {
+  try {
+    const d = await api('/api/settings', { method: 'PUT', body: JSON.stringify({
+      appName: $('#as-name').value.trim(),
+      noticeRules: $('#as-notice').value,
+      bannerTitle: $('#as-bannertitle').value.trim(),
+      bannerSubtitle: $('#as-bannersub').value.trim(),
+      withdrawMin: Number($('#as-wdmin').value),
+      withdrawStart: clockInputToMins($('#as-wdstart').value),
+      withdrawEnd: clockInputToMins($('#as-wdend').value),
+      spinEnabled: $('#as-spin').checked,
+    }) });
+    appConfig = d.settings || null;
+    await loadAppConfig();
+    render(); toast('App settings saved');
+  } catch (e) { const el = $('#as-err'); if (el) el.innerHTML = `<div class="err">${esc(e.message)}</div>`; else toast(e.message); }
+};
+window.toggleBan = async (id, banned) => {
+  try {
+    if (banned && !confirm('Ban this player? They will not be able to login or join matches.')) return;
+    await api(`/api/admin/players/${id}/ban`, { method: 'POST', body: JSON.stringify({ banned }) });
+    render(); toast(banned ? 'Player banned' : 'Player unbanned');
+  } catch (e) { toast(e.message); }
 };
 window.editMatch = (id) => {
   const m = adminTournaments.find((x) => x.id === id);
@@ -1252,6 +1362,10 @@ setInterval(() => {
 }, 1000);
 
 (async () => {
+  await loadAppConfig();
+  const st = document.querySelector('.splash-title');
+  if (st) st.textContent = appName();
+  document.title = appName() + ' — Play Win Enjoy';
   await loadTournaments();
   const hadToken = !!token;
   if (token) { await loadMe(); if (profile) view = 'play'; }
