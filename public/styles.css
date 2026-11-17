@@ -338,3 +338,8 @@ h3{font-size:15px;margin-bottom:6px}
 .payreq-rows span{color:var(--mut)}
 .verify-row{display:flex;gap:8px;align-items:flex-start;margin-top:10px;font-size:13px;line-height:1.5;cursor:pointer}
 .verify-row input{width:auto;flex:0 0 auto;margin-top:2px}
+
+/* password visibility eye — lets the player see exactly what they typed */
+.pw-wrap{position:relative}
+.pw-wrap input{padding-right:38px}
+.pw-eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;padding:4px;line-height:1}
