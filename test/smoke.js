@@ -90,6 +90,30 @@ function req(method, p, body, token) {
     me = await req('GET', '/api/me', null, ownerToken);
     assert.strictEqual(me.data.wallet.winningBalance, 160, 'prize 160 to winning, got ' + me.data.wallet.winningBalance);
 
+    // rank prizes: admin creates a BR Solo match with 1st-5th set, edits one,
+    // and the result payout uses the admin-set rank prize
+    const mk = await req('POST', '/api/tournaments', { title: 'BR Solo — Rank Test', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: '2026-11-20', matchTime: '19:00', prizePool: 800, entryFee: 20, prize1: 90, prize2: 70, prize3: 40, prize4: 30, prize5: 20, perKillPrize: 10 }, ownerToken);
+    assert.strictEqual(mk.status, 200, 'create match with rank prizes: ' + JSON.stringify(mk.data));
+    const rankList = await req('GET', '/api/tournaments');
+    const rankM = rankList.data.tournaments.find((t) => t.id === mk.data.id);
+    assert.strictEqual(rankM.prize1, 90, 'prize1 returned');
+    assert.strictEqual(rankM.prize5, 20, 'prize5 returned');
+    const upd = await req('PUT', `/api/tournaments/${mk.data.id}`, { prize1: 100 }, ownerToken);
+    assert.strictEqual(upd.status, 200, 'edit rank prize: ' + JSON.stringify(upd.data));
+    const rankList2 = await req('GET', '/api/tournaments');
+    assert.strictEqual(rankList2.data.tournaments.find((t) => t.id === mk.data.id).prize1, 100, 'prize1 updated to 100');
+    // 1st place, 0 kills on the rank match -> 100 (admin-set), not the 90 fallback
+    const res2 = await req('POST', '/api/results', { tournamentId: mk.data.id, profileId: me.data.profile.id, playerName: 'bijoy', placement: 1, kills: 0 }, ownerToken);
+    assert.strictEqual(res2.status, 200, 'publish rank result');
+    me = await req('GET', '/api/me', null, ownerToken);
+    assert.strictEqual(me.data.wallet.winningBalance, 260, 'winning 160 fallback + 100 rank prize, got ' + me.data.wallet.winningBalance);
+    // match created without rank prizes: fields default to 0 (fallback still applies in popup/results)
+    const mk2 = await req('POST', '/api/tournaments', { title: 'CS 1v1 — No Rank', category: 'cs', subcategory: '1v1', mode: 'solo', matchType: 'clash_squad', matchDate: '2026-11-20', matchTime: '20:00', prizePool: 100, entryFee: 10, perKillPrize: 0 }, ownerToken);
+    assert.strictEqual(mk2.status, 200, 'create match without rank prizes');
+    const noRank = (await req('GET', '/api/tournaments')).data.tournaments.find((t) => t.id === mk2.data.id);
+    assert.strictEqual(noRank.prize1, 0, 'prize1 defaults 0');
+    assert.strictEqual(noRank.prize5, 0, 'prize5 defaults 0');
+
     // withdraw below minimum + from deposit refused; spin works once
     const wdBad = await req('POST', '/api/withdraw', { amount: 50, method: 'bkash', accountNumber: '01906502081' }, ownerToken);
     assert.strictEqual(wdBad.status, 400, 'withdraw below 100 refused');
@@ -118,7 +142,7 @@ function req(method, p, body, token) {
     // team boxes, Match Full, tutorial, Remember Me, Forgot, results tabs,
     // support modal + animations must be present in served files
     const appJs = await (await fetch('http://127.0.0.1:3101/app.js')).text();
-    for (const s of ['banner-carousel', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'DEPOSIT BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'S_19 on Telegram', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'Join with Squad', 'squadNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled']) {
+    for (const s of ['banner-carousel', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'DEPOSIT BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'S_19 on Telegram', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'Join with Squad', 'squadNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled', 'ad-prize1', 'em-prize1', 'Match Prizes', '1st Prize', '2nd Prize', 'prize1']) {
       assert.ok(appJs.includes(s), 'app.js missing: ' + s);
     }
     const css = await (await fetch('http://127.0.0.1:3101/styles.css')).text();
