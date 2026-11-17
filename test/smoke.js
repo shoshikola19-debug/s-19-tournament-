@@ -355,6 +355,46 @@ function req(method, p, body, token) {
     const dupUser = await req('POST', '/api/register', { username: 'logintest', email: 'newuser@example.com', phone: '+8801912345680', password: 'pass1234' });
     assert.strictEqual(dupUser.status, 400, 'duplicate username rejected');
     assert.strictEqual(dupUser.data.error, 'This username is already taken. Please choose another one.', 'duplicate username message in English');
+    // password trimming: a trailing space typed at register must not make the
+    // correct password show "Wrong password" at login
+    const regTrim = await req('POST', '/api/register', { username: 'trimuser', email: 'trim@example.com', phone: '+8801912345681', password: 'pass1234 ' });
+    assert.strictEqual(regTrim.status, 200, 'register with trailing-space password: ' + JSON.stringify(regTrim.data));
+    const loginTrim = await req('POST', '/api/login', { emailOrUsername: 'trimuser', password: 'pass1234' });
+    assert.strictEqual(loginTrim.status, 200, 'login without the space works after trimmed register');
+    const loginTrimSpace = await req('POST', '/api/login', { emailOrUsername: 'trimuser', password: 'pass1234 ' });
+    assert.strictEqual(loginTrimSpace.status, 200, 'login with the space also works');
+    // legacy account: password stored WITH a trailing space (registered
+    // before trimming) — login WITHOUT the space must still work
+    const regLegacy = await req('POST', '/api/register', { username: 'legacyuser', email: 'legacy@example.com', phone: '+8801912345682', password: 'legacy99' });
+    assert.strictEqual(regLegacy.status, 200, 'legacy user register');
+    const crypto = require('crypto');
+    const legacySalt = crypto.randomBytes(16).toString('hex');
+    const legacyHash = crypto.scryptSync('legacy99 ', legacySalt, 64).toString('hex');
+    server.execSync(`sqlite3 "${DB}" "UPDATE profiles SET password_hash = '${legacyHash}', password_salt = '${legacySalt}' WHERE username = 'legacyuser'"`);
+    const legacyLogin = await req('POST', '/api/login', { emailOrUsername: 'legacyuser', password: 'legacy99' });
+    assert.strictEqual(legacyLogin.status, 200, 'legacy space-stored password logs in without the space: ' + JSON.stringify(legacyLogin.data));
+    const legacyWrong = await req('POST', '/api/login', { emailOrUsername: 'legacyuser', password: 'legacy98' });
+    assert.strictEqual(legacyWrong.status, 400, 'legacy account still rejects a truly wrong password');
+    // forgot password by phone: code requested by phone must verify with the
+    // email identifier too, and the message must not claim an email was sent
+    // when there is no SMTP (code goes to Support / admin panel instead)
+    const regRx = await req('POST', '/api/register', { username: 'resetx', email: 'resetx@example.com', phone: '+8801912345683', password: 'OldPass99' });
+    assert.strictEqual(regRx.status, 200, 'resetx register');
+    const ownerReLogin = await req('POST', '/api/login', { emailOrUsername: 'shoshikola19@gmail.com', password: 'newpass99' });
+    assert.strictEqual(ownerReLogin.status, 200, 'owner re-login for reset list');
+    const rxReq = await req('POST', '/api/forgot-password/request', { emailOrPhone: '+8801912345683' });
+    assert.strictEqual(rxReq.status, 200, 'reset request by phone: ' + JSON.stringify(rxReq.data));
+    assert.strictEqual(rxReq.data.channel, 'admin', 'no SMTP in test env: phone reset goes to admin channel');
+    assert.ok(/Support/.test(rxReq.data.message || ''), 'phone reset message tells the player to ask Support, not to check email');
+    const rxList = await req('GET', '/api/admin/reset-requests', null, ownerReLogin.data.token);
+    const rxRow = (rxList.data.requests || []).find((r) => r.contact === '+8801912345683');
+    assert.ok(rxRow && rxRow.code, 'phone reset code visible to admin');
+    const rxVerifyEmail = await req('POST', '/api/forgot-password/verify', { emailOrPhone: 'resetx@example.com', code: rxRow.code, newPassword: ' NewPass99 ' });
+    assert.strictEqual(rxVerifyEmail.status, 200, 'code requested by phone verifies with email identifier: ' + JSON.stringify(rxVerifyEmail.data));
+    const rxLoginNew = await req('POST', '/api/login', { emailOrUsername: 'resetx', password: 'NewPass99' });
+    assert.strictEqual(rxLoginNew.status, 200, 'new password (trimmed) logs in after cross-identifier reset');
+    const rxLoginOld = await req('POST', '/api/login', { emailOrUsername: 'resetx', password: 'OldPass99' });
+    assert.strictEqual(rxLoginOld.status, 400, 'old password rejected after reset');
 
     // ---- app settings + players (admin) ----
     // ownerToken died in the forgot-password test above (sessions wiped);
@@ -434,7 +474,7 @@ function req(method, p, body, token) {
     // team boxes, Match Full, tutorial, Remember Me, Forgot, results tabs,
     // support modal + animations must be present in served files
     const appJs = await (await fetch('http://127.0.0.1:3101/app.js')).text();
-    for (const s of ['banner-carousel', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'TOPUP BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'S_19 on Telegram', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'Join with Squad', 'squadNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled', 'ad-prize1', 'em-prize1', 'Match Prizes', '1st Prize', '2nd Prize', 'prize1', 'avatar-img', 'avatar-cam', 'uploadAvatar', 'copyS19Id', 'profile-tiles', 'profile-tile', 'menu-list', 'menu-row', 'BDT', 'Edit Profile', 'Daily Spin', 'All Rules', 'Leaderboard', 'wallet-hero', 'Available Balance', 'DEPOSITED', 'WINNING', 'Transfer Balance', 'openTransfer', 'transfer-balance', 'Transfer to Deposit', 'BKASH &amp; NAGAD', 'Proceed to Payment', '10 - 1000', 'minimum of 10 Taka', 'maximum of 1000', 'Transaction History', 'openTxHistory', 'How to add money?', 'openHowToAddMoney', 'How to join a match?', 'How to withdraw?', 'openHowToWithdraw', 'Nagad number not added yet', 'Nagad number will be added later', 'depPickGateway', 'depPickMethod', 'depCheck', 'depStep2', 'match-head', 'match-date', 'fmtDateTime', 'tile-ic', 'reg-row', 'join-btn', 'tutorial-pill', 'ad-slots', 'em-slots', 'Total Slots', 'adSlotsDefault', 'SLOT_DEFAULTS', 'Email / Username / Phone', 'Email, username or phone number', 'already exists', 'already taken', 'Send Code', 'Resend Code', 'Enter Reset Code', 'forgot-password/request', 'forgot-password/verify', 'Password Reset Requests', 'reset-requests', 'cancelReset', 'doForgotSend', 'doForgotVerify', 'topupHTML', 'topupSoon', 'Top-up coming soon', 'FREE FIRE TOPUP BD SERVER', 'INDONESIA SERVER', 'UID TOPUP', 'Level Up Pass', 'Weekly Lite', 'Weekly & Monthly', 'topup-grid', 'topup-card', 'topup-banner', 'TOPUP_PACKS_BD', 'TOPUP_PACKS_ID', 'daily-spin', 'spin-wheel', 'Spin Now', 'Next Spin in', 'Use free pass', 'SPIN_SEGMENTS', 'openSpin', 'doSpin', 'passForMatch', 'spin-counters', 'spin-head', 'spin-hub', 'spin-countdown', 'You won a free', 'Better luck tomorrow', 'spinState', 'usedPass', 'Payment Requests', 'admin/transactions', 'reviewTx', 'payreq', 'Verify this TrxID', 'Fake TrxIDs must be rejected', 'I verified this transaction', 'toggleApproveBtn', 'App Settings', 'saveAppSettings', 'Players', 'toggleBan', 'app-config', 'loadAppConfig', 'noticeRules', 'withdrawInfoText', 'Daily Spin is currently disabled', 'Daily Spin is off']) {
+    for (const s of ['banner-carousel', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'TOPUP BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'S_19 on Telegram', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'Join with Squad', 'squadNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled', 'ad-prize1', 'em-prize1', 'Match Prizes', '1st Prize', '2nd Prize', 'prize1', 'avatar-img', 'avatar-cam', 'uploadAvatar', 'copyS19Id', 'profile-tiles', 'profile-tile', 'menu-list', 'menu-row', 'BDT', 'Edit Profile', 'Daily Spin', 'All Rules', 'Leaderboard', 'wallet-hero', 'Available Balance', 'DEPOSITED', 'WINNING', 'Transfer Balance', 'openTransfer', 'transfer-balance', 'Transfer to Deposit', 'BKASH &amp; NAGAD', 'Proceed to Payment', '10 - 1000', 'minimum of 10 Taka', 'maximum of 1000', 'Transaction History', 'openTxHistory', 'How to add money?', 'openHowToAddMoney', 'How to join a match?', 'How to withdraw?', 'openHowToWithdraw', 'Nagad number not added yet', 'Nagad number will be added later', 'depPickGateway', 'depPickMethod', 'depCheck', 'depStep2', 'match-head', 'match-date', 'fmtDateTime', 'tile-ic', 'reg-row', 'join-btn', 'tutorial-pill', 'ad-slots', 'em-slots', 'Total Slots', 'adSlotsDefault', 'SLOT_DEFAULTS', 'Email / Username / Phone', 'Email, username or phone number', 'already exists', 'already taken', 'Send Code', 'Resend Code', 'Enter Reset Code', 'forgot-password/request', 'forgot-password/verify', 'Password Reset Requests', 'reset-requests', 'cancelReset', 'doForgotSend', 'doForgotVerify', 'topupHTML', 'topupSoon', 'Top-up coming soon', 'FREE FIRE TOPUP BD SERVER', 'INDONESIA SERVER', 'UID TOPUP', 'Level Up Pass', 'Weekly Lite', 'Weekly & Monthly', 'topup-grid', 'topup-card', 'topup-banner', 'TOPUP_PACKS_BD', 'TOPUP_PACKS_ID', 'daily-spin', 'spin-wheel', 'Spin Now', 'Next Spin in', 'Use free pass', 'SPIN_SEGMENTS', 'openSpin', 'doSpin', 'passForMatch', 'spin-counters', 'spin-head', 'spin-hub', 'spin-countdown', 'You won a free', 'Better luck tomorrow', 'spinState', 'usedPass', 'Payment Requests', 'admin/transactions', 'reviewTx', 'payreq', 'Verify this TrxID', 'Fake TrxIDs must be rejected', 'I verified this transaction', 'toggleApproveBtn', 'App Settings', 'saveAppSettings', 'Players', 'toggleBan', 'app-config', 'loadAppConfig', 'noticeRules', 'withdrawInfoText', 'Daily Spin is currently disabled', 'Daily Spin is off', 'togglePw', 'pw-wrap', 'pw-eye', 'err.status', "return 'network'", 'unauthorized']) {
       assert.ok(appJs.includes(s), 'app.js missing: ' + s);
     }
     assert.ok(!appJs.includes('topup-order') && !appJs.includes('/api/topup'), 'topup is display-only: no order endpoint');
