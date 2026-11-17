@@ -189,15 +189,51 @@ function req(method, p, body, token) {
     const spin2 = await req('POST', '/api/spin', {}, ownerToken);
     assert.strictEqual(spin2.status, 400, 'second spin same day refused');
 
-    // forgot password: reset works, old password stops working
-    const fp = await req('POST', '/api/forgot-password', { email: 'shoshikola19@gmail.com', newPassword: 'newpass99' });
-    assert.strictEqual(fp.status, 200, 'forgot password: ' + JSON.stringify(fp.data));
-    const fpNo = await req('POST', '/api/forgot-password', { email: 'nobody@example.com', newPassword: 'newpass99' });
-    assert.strictEqual(fpNo.status, 400, 'forgot with unknown email rejected');
+    // forgot password (code-based): request -> wrong code rejected -> 5 wrong
+    // attempts kill the code -> fresh code -> expired rejected -> correct code
+    // resets, old password + old token dead, new password works
+    const fpUnknown = await req('POST', '/api/forgot-password/request', { emailOrPhone: 'nobody@example.com' });
+    assert.strictEqual(fpUnknown.status, 200, 'unknown email gets generic ok (no reveal)');
+    const fpReq = await req('POST', '/api/forgot-password/request', { emailOrPhone: 'shoshikola19@gmail.com' });
+    assert.strictEqual(fpReq.status, 200, 'forgot request: ' + JSON.stringify(fpReq.data));
+    assert.strictEqual(fpReq.data.channel, 'admin', 'no SMTP in tests — code goes to admin panel');
+    const fpAgain = await req('POST', '/api/forgot-password/request', { emailOrPhone: 'shoshikola19@gmail.com' });
+    assert.strictEqual(fpAgain.status, 429, 'resend within 60s refused');
+    const getCode = async () => {
+      const rs = await req('GET', '/api/admin/reset-requests', null, ownerToken);
+      assert.strictEqual(rs.status, 200, 'admin reset list');
+      const row = rs.data.requests.find((r) => r.contact === 'shoshikola19@gmail.com');
+      assert.ok(row && /^\d{6}$/.test(row.code), 'admin panel shows the 6-digit code');
+      return row;
+    };
+    const row1 = await getCode();
+    const fpNoCode = await req('POST', '/api/forgot-password/verify', { emailOrPhone: 'shoshikola19@gmail.com', code: '123456', newPassword: 'newpass99' });
+    assert.strictEqual(fpNoCode.status, 400, 'wrong code rejected');
+    assert.ok(/4 attempts left/.test(fpNoCode.data.error), 'attempts drop to 4, got: ' + fpNoCode.data.error);
+    for (let i = 0; i < 4; i++) {
+      const w = await req('POST', '/api/forgot-password/verify', { emailOrPhone: 'shoshikola19@gmail.com', code: '123456', newPassword: 'newpass99' });
+      assert.strictEqual(w.status, 400, 'wrong code #' + (i + 2) + ' rejected');
+    }
+    const fpDead = await req('POST', '/api/forgot-password/verify', { emailOrPhone: 'shoshikola19@gmail.com', code: row1.code, newPassword: 'newpass99' });
+    assert.strictEqual(fpDead.status, 400, 'code dead after 5 wrong attempts');
+    const fpReq2 = await req('POST', '/api/forgot-password/request', { emailOrPhone: 'shoshikola19@gmail.com' });
+    assert.strictEqual(fpReq2.status, 200, 'fresh code after exhaustion');
+    const row2 = await getCode();
+    server.execSync(`sqlite3 "${DB}" "UPDATE password_resets SET expires_at = 1 WHERE id = ${row2.id}"`);
+    const fpExp = await req('POST', '/api/forgot-password/verify', { emailOrPhone: 'shoshikola19@gmail.com', code: row2.code, newPassword: 'newpass99' });
+    assert.strictEqual(fpExp.status, 400, 'expired code rejected');
+    assert.ok(/expired/i.test(fpExp.data.error), 'expired message, got: ' + fpExp.data.error);
+    const fpReq3 = await req('POST', '/api/forgot-password/request', { emailOrPhone: 'shoshikola19@gmail.com' });
+    assert.strictEqual(fpReq3.status, 200, 'fresh code for reset');
+    const row3 = await getCode();
+    const fpOk = await req('POST', '/api/forgot-password/verify', { emailOrPhone: 'shoshikola19@gmail.com', code: row3.code, newPassword: 'newpass99' });
+    assert.strictEqual(fpOk.status, 200, 'correct code resets password: ' + JSON.stringify(fpOk.data));
     const oldLogin = await req('POST', '/api/login', { emailOrUsername: 'shoshikola19@gmail.com', password: 'test1234' });
     assert.strictEqual(oldLogin.status, 400, 'old password rejected after reset');
     const newLogin = await req('POST', '/api/login', { emailOrUsername: 'shoshikola19@gmail.com', password: 'newpass99' });
     assert.strictEqual(newLogin.status, 200, 'login with new password works');
+    const meOld = await req('GET', '/api/me', null, ownerToken);
+    assert.strictEqual(meOld.status, 401, 'old token dead after reset');
 
     // login by email / username / phone — one account, any identifier, any case/format
     const regL = await req('POST', '/api/register', { username: 'logintest', email: 'LoginTest@Example.com', phone: '+8801812345678', password: 'pass1234' });
@@ -242,7 +278,7 @@ function req(method, p, body, token) {
     // team boxes, Match Full, tutorial, Remember Me, Forgot, results tabs,
     // support modal + animations must be present in served files
     const appJs = await (await fetch('http://127.0.0.1:3101/app.js')).text();
-    for (const s of ['banner-carousel', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'TOPUP BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'S_19 on Telegram', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'Join with Squad', 'squadNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled', 'ad-prize1', 'em-prize1', 'Match Prizes', '1st Prize', '2nd Prize', 'prize1', 'avatar-img', 'avatar-cam', 'uploadAvatar', 'copyS19Id', 'profile-tiles', 'profile-tile', 'menu-list', 'menu-row', 'BDT', 'Edit Profile', 'Daily Spin', 'All Rules', 'Leaderboard', 'wallet-hero', 'Available Balance', 'DEPOSITED', 'WINNING', 'Transfer Balance', 'openTransfer', 'transfer-balance', 'Transfer to Deposit', 'BKASH &amp; NAGAD', 'Proceed to Payment', '10 - 1000', 'minimum of 10 Taka', 'maximum of 1000', 'Transaction History', 'openTxHistory', 'How to add money?', 'openHowToAddMoney', 'How to join a match?', 'How to withdraw?', 'openHowToWithdraw', 'Nagad number not added yet', 'Nagad number will be added later', 'depPickGateway', 'depPickMethod', 'depCheck', 'depStep2', 'match-head', 'match-date', 'fmtDateTime', 'tile-ic', 'reg-row', 'join-btn', 'tutorial-pill', 'ad-slots', 'em-slots', 'Total Slots', 'adSlotsDefault', 'SLOT_DEFAULTS', 'Email / Username / Phone', 'Email, username or phone number', 'already exists', 'already taken']) {
+    for (const s of ['banner-carousel', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'TOPUP BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'S_19 on Telegram', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'Join with Squad', 'squadNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled', 'ad-prize1', 'em-prize1', 'Match Prizes', '1st Prize', '2nd Prize', 'prize1', 'avatar-img', 'avatar-cam', 'uploadAvatar', 'copyS19Id', 'profile-tiles', 'profile-tile', 'menu-list', 'menu-row', 'BDT', 'Edit Profile', 'Daily Spin', 'All Rules', 'Leaderboard', 'wallet-hero', 'Available Balance', 'DEPOSITED', 'WINNING', 'Transfer Balance', 'openTransfer', 'transfer-balance', 'Transfer to Deposit', 'BKASH &amp; NAGAD', 'Proceed to Payment', '10 - 1000', 'minimum of 10 Taka', 'maximum of 1000', 'Transaction History', 'openTxHistory', 'How to add money?', 'openHowToAddMoney', 'How to join a match?', 'How to withdraw?', 'openHowToWithdraw', 'Nagad number not added yet', 'Nagad number will be added later', 'depPickGateway', 'depPickMethod', 'depCheck', 'depStep2', 'match-head', 'match-date', 'fmtDateTime', 'tile-ic', 'reg-row', 'join-btn', 'tutorial-pill', 'ad-slots', 'em-slots', 'Total Slots', 'adSlotsDefault', 'SLOT_DEFAULTS', 'Email / Username / Phone', 'Email, username or phone number', 'already exists', 'already taken', 'Send Code', 'Resend Code', 'Enter Reset Code', 'forgot-password/request', 'forgot-password/verify', 'Password Reset Requests', 'reset-requests', 'cancelReset', 'doForgotSend', 'doForgotVerify']) {
       assert.ok(appJs.includes(s), 'app.js missing: ' + s);
     }
     const css = await (await fetch('http://127.0.0.1:3101/styles.css')).text();
