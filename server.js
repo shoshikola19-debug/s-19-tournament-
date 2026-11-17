@@ -235,8 +235,12 @@ app.get('/api/health', (req, res) => res.json({ ok: true, engine: db.getEngine()
 // ---- auth ----
 app.post('/api/register', async (req, res) => {
   try {
-    const { username, email, phone, password } = req.body || {};
-    if (!username || !email || !phone || !password || String(password).length < 4) {
+    const { username, email, phone } = req.body || {};
+    // Passwords are trimmed on every side: a phone keyboard easily adds a
+    // trailing space while typing, and that stored space made the correct
+    // password show "Wrong password" at login.
+    const password = String((req.body || {}).password || '').trim();
+    if (!username || !email || !phone || !password || password.length < 4) {
       return res.status(400).json({ ok: false, error: 'Username, email, phone and a 4+ character password are required' });
     }
     const phoneCanon = canonicalPhone(phone);
@@ -295,8 +299,18 @@ app.post('/api/login', async (req, res) => {
     let p = await db.get('SELECT * FROM profiles WHERE LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)', [id, id]);
     if (!p) p = await findProfileByPhone(id);
     if (!p || !p.password_hash) return res.status(400).json({ ok: false, error: 'No account found — register first' });
-    const { hash } = hashPassword(String(password), p.password_salt);
-    if (hash !== p.password_hash) return res.status(400).json({ ok: false, error: 'Wrong password' });
+    // Trimmed first (see register). Also try the exact typed password and
+    // one-space variants: an account created before trimming may have a
+    // trailing/leading space stored, and its owner types the password
+    // without the space — that must still log in, not show "Wrong password".
+    const rawPw = String(password);
+    const pw = rawPw.trim();
+    const candidates = [...new Set([pw, rawPw, pw + ' ', ' ' + pw])];
+    let ok = false;
+    for (const c of candidates) {
+      if (hashPassword(c, p.password_salt).hash === p.password_hash) { ok = true; break; }
+    }
+    if (!ok) return res.status(400).json({ ok: false, error: 'Wrong password' });
     if (p.banned) return res.status(403).json({ ok: false, error: 'This account is banned' });
     const token = crypto.randomBytes(32).toString('hex');
     await db.run('INSERT INTO sessions (token, profile_id, created_at) VALUES (?,?,?)',
@@ -345,6 +359,12 @@ async function sendResetCodeEmail(to, code) {
     return true;
   } catch (e) { console.error('reset email failed:', e.message); return false; }
 }
+// Show where the code went without exposing the full address.
+function maskEmail(e) {
+  const [u, d] = String(e || '').split('@');
+  if (!u || !d) return e;
+  return u.slice(0, 1) + '***@' + d;
+}
 
 app.post('/api/forgot-password/request', async (req, res) => {
   try {
@@ -375,26 +395,51 @@ app.post('/api/forgot-password/request', async (req, res) => {
     if (isEmail) {
       emailed = await sendResetCodeEmail(contact, code);
       if (emailed) channel = 'email';
+    } else if (p.email) {
+      // No SMS gateway: a phone request sends the code to the account's
+      // registered email instead of leaving the player with no code.
+      emailed = await sendResetCodeEmail(p.email.toLowerCase(), code);
+      if (emailed) channel = 'email';
     }
     await db.run('INSERT INTO password_resets (identifier, contact, channel, code_hash, code_plain, expires_at, attempts_left, last_sent_at, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
       [identifier, contact, channel, codeHash, emailed ? '' : code, now + RESET_TTL_MS, 5, now, new Date().toISOString()]);
     return res.json({
       ok: true, channel,
-      message: emailed ? 'Reset code sent to your email.' : 'Code sent — check your email. If you didn\'t get it, contact Support.',
+      message: emailed
+        ? `Reset code sent to your email (${maskEmail(isEmail ? contact : p.email.toLowerCase())}). It expires in 10 minutes.`
+        : 'No SMS available — your reset code is with Support. Ask the admin for the code, then enter it below.',
     });
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
 
 app.post('/api/forgot-password/verify', async (req, res) => {
   try {
-    const { emailOrPhone, code, newPassword } = req.body || {};
-    if (!emailOrPhone || !code || !newPassword || String(newPassword).length < 4) {
+    const { emailOrPhone, code } = req.body || {};
+    const newPassword = String((req.body || {}).newPassword || '').trim();
+    if (!emailOrPhone || !code || !newPassword || newPassword.length < 4) {
       return res.status(400).json({ ok: false, error: 'Code and a 4+ character new password are required' });
     }
     const raw = String(emailOrPhone).trim();
-    const identifier = raw.includes('@') ? raw.toLowerCase() : normalizePhone(raw);
-    if (!identifier) return res.status(400).json({ ok: false, error: 'Enter a valid email or phone number' });
-    const row = await db.get('SELECT * FROM password_resets WHERE identifier = ? ORDER BY id DESC', [identifier]);
+    const id0 = raw.includes('@') ? raw.toLowerCase() : normalizePhone(raw);
+    if (!id0) return res.status(400).json({ ok: false, error: 'Enter a valid email or phone number' });
+    // The code may have been requested with the account's other identifier
+    // (phone vs email) — try both, so a code requested by phone also works
+    // when the player types their email here, and vice versa.
+    const pPre = raw.includes('@')
+      ? await db.get('SELECT * FROM profiles WHERE LOWER(email) = LOWER(?)', [raw])
+      : await findProfileByPhone(raw);
+    const candidates = [id0];
+    if (pPre) {
+      const e2 = String(pPre.email || '').toLowerCase();
+      if (e2 && !candidates.includes(e2)) candidates.push(e2);
+      const ph2 = normalizePhone(pPre.phone);
+      if (ph2 && !candidates.includes(ph2)) candidates.push(ph2);
+    }
+    let row = null;
+    for (const c of candidates) {
+      row = await db.get('SELECT * FROM password_resets WHERE identifier = ? ORDER BY id DESC', [c]);
+      if (row) break;
+    }
     if (!row) return res.status(400).json({ ok: false, error: 'No reset code found. Please request a new code.' });
     const now = Date.now();
     if (now > row.expires_at) {
