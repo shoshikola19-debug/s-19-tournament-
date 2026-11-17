@@ -131,6 +131,41 @@ function req(method, p, body, token) {
     assert.strictEqual(noRank.prize1, 0, 'prize1 defaults 0');
     assert.strictEqual(noRank.prize5, 0, 'prize5 defaults 0');
 
+    // custom slots: admin sets any totalSlots 2–100; category default only when omitted
+    const slotBad1 = await req('POST', '/api/tournaments', { title: 'Bad Slots 1', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: '2026-11-20', matchTime: '21:00', prizePool: 800, entryFee: 20, totalSlots: 1, perKillPrize: 10 }, ownerToken);
+    assert.strictEqual(slotBad1.status, 400, '1 slot rejected');
+    const slotBad101 = await req('POST', '/api/tournaments', { title: 'Bad Slots 101', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: '2026-11-20', matchTime: '21:00', prizePool: 800, entryFee: 20, totalSlots: 101, perKillPrize: 10 }, ownerToken);
+    assert.strictEqual(slotBad101.status, 400, '101 slots rejected');
+    const mk30 = await req('POST', '/api/tournaments', { title: 'BR Solo — 30 Slots', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: '2026-11-20', matchTime: '21:00', prizePool: 800, entryFee: 20, totalSlots: 30, perKillPrize: 10 }, ownerToken);
+    assert.strictEqual(mk30.status, 200, 'create BR Solo with 30 slots: ' + JSON.stringify(mk30.data));
+    assert.strictEqual((await req('GET', '/api/tournaments')).data.tournaments.find((t) => t.id === mk30.data.id).totalSlots, 30, 'custom 30 slots saved');
+    const mkDef = await req('POST', '/api/tournaments', { title: 'BR Solo — Default Slots', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: '2026-11-20', matchTime: '22:30', prizePool: 800, entryFee: 20, perKillPrize: 10 }, ownerToken);
+    assert.strictEqual(mkDef.status, 200, 'create without totalSlots');
+    assert.strictEqual((await req('GET', '/api/tournaments')).data.tournaments.find((t) => t.id === mkDef.data.id).totalSlots, 48, 'default BR Solo 48 slots');
+    // BR Solo 48 -> 30 (seeded id 2, 1 booking) and CS 1v1 2 -> 6 (seeded id 6, no bookings)
+    const cut = await req('PUT', '/api/tournaments/2', { totalSlots: 30 }, ownerToken);
+    assert.strictEqual(cut.status, 200, 'BR Solo cut 48 -> 30: ' + JSON.stringify(cut.data));
+    assert.strictEqual((await req('GET', '/api/tournaments')).data.tournaments.find((t) => t.id === 2).totalSlots, 30, 'BR Solo now 30 slots');
+    const raise = await req('PUT', '/api/tournaments/6', { totalSlots: 6 }, ownerToken);
+    assert.strictEqual(raise.status, 200, 'CS 1v1 raised 2 -> 6: ' + JSON.stringify(raise.data));
+    assert.strictEqual((await req('GET', '/api/tournaments')).data.tournaments.find((t) => t.id === 6).totalSlots, 6, 'CS 1v1 now 6 slots');
+    // booked guard: free-entry match, 6 slots, 3 bookings — cannot cut below 3
+    const reg3 = await req('POST', '/api/register', { username: 'third', email: 'third@example.com', phone: '+8801911111111', password: 'test1234' });
+    assert.strictEqual(reg3.status, 200, 'third user register: ' + JSON.stringify(reg3.data));
+    const tok3 = reg3.data.token;
+    await req('POST', '/api/profile', { ign: 'third', uid: '9999999999' }, tok3);
+    const mkG = await req('POST', '/api/tournaments', { title: 'Guard Test — 6 Slots', category: 'cs', subcategory: '1v1', mode: 'solo', matchType: 'clash_squad', matchDate: '2026-11-20', matchTime: '22:00', prizePool: 100, entryFee: 0, totalSlots: 6, perKillPrize: 0 }, ownerToken);
+    assert.strictEqual(mkG.status, 200, 'guard match created');
+    const guardBooks = [[ownerToken, 'bijoy', 1], [tok2, 'squadmate', 2], [tok3, 'third', 3]];
+    for (const [tk, nm, sl] of guardBooks) {
+      const b = await req('POST', `/api/tournaments/${mkG.data.id}/book`, { slotNumber: sl, playerName: nm }, tk);
+      assert.strictEqual(b.status, 200, 'guard booking ' + nm + ': ' + JSON.stringify(b.data));
+    }
+    const cutLow = await req('PUT', `/api/tournaments/${mkG.data.id}`, { totalSlots: 2 }, ownerToken);
+    assert.strictEqual(cutLow.status, 400, 'cut below 3 booked rejected');
+    const cutEq = await req('PUT', `/api/tournaments/${mkG.data.id}`, { totalSlots: 3 }, ownerToken);
+    assert.strictEqual(cutEq.status, 200, 'cut to exactly 3 booked allowed');
+
     // transfer balance: Winning -> Deposit only (deposit 180, winning 260 here)
     const trBad = await req('POST', '/api/transfer-balance', { amount: 500 }, ownerToken);
     assert.strictEqual(trBad.status, 400, 'transfer more than winning rejected');
@@ -174,11 +209,11 @@ function req(method, p, body, token) {
     // team boxes, Match Full, tutorial, Remember Me, Forgot, results tabs,
     // support modal + animations must be present in served files
     const appJs = await (await fetch('http://127.0.0.1:3101/app.js')).text();
-    for (const s of ['banner-carousel', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'TOPUP BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'S_19 on Telegram', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'Join with Squad', 'squadNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled', 'ad-prize1', 'em-prize1', 'Match Prizes', '1st Prize', '2nd Prize', 'prize1', 'avatar-img', 'avatar-cam', 'uploadAvatar', 'copyS19Id', 'profile-tiles', 'profile-tile', 'menu-list', 'menu-row', 'BDT', 'Edit Profile', 'Daily Spin', 'All Rules', 'Leaderboard', 'wallet-hero', 'Available Balance', 'DEPOSITED', 'WINNING', 'Transfer Balance', 'openTransfer', 'transfer-balance', 'Transfer to Deposit', 'BKASH &amp; NAGAD', 'Proceed to Payment', '10 - 1000', 'minimum of 10 Taka', 'maximum of 1000', 'Transaction History', 'openTxHistory', 'How to add money?', 'openHowToAddMoney', 'How to join a match?', 'How to withdraw?', 'openHowToWithdraw', 'Nagad number not added yet', 'Nagad number will be added later', 'depPickGateway', 'depPickMethod', 'depCheck', 'depStep2']) {
+    for (const s of ['banner-carousel', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'TOPUP BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'S_19 on Telegram', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'Join with Squad', 'squadNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled', 'ad-prize1', 'em-prize1', 'Match Prizes', '1st Prize', '2nd Prize', 'prize1', 'avatar-img', 'avatar-cam', 'uploadAvatar', 'copyS19Id', 'profile-tiles', 'profile-tile', 'menu-list', 'menu-row', 'BDT', 'Edit Profile', 'Daily Spin', 'All Rules', 'Leaderboard', 'wallet-hero', 'Available Balance', 'DEPOSITED', 'WINNING', 'Transfer Balance', 'openTransfer', 'transfer-balance', 'Transfer to Deposit', 'BKASH &amp; NAGAD', 'Proceed to Payment', '10 - 1000', 'minimum of 10 Taka', 'maximum of 1000', 'Transaction History', 'openTxHistory', 'How to add money?', 'openHowToAddMoney', 'How to join a match?', 'How to withdraw?', 'openHowToWithdraw', 'Nagad number not added yet', 'Nagad number will be added later', 'depPickGateway', 'depPickMethod', 'depCheck', 'depStep2', 'match-head', 'match-date', 'fmtDateTime', 'tile-ic', 'reg-row', 'join-btn', 'tutorial-pill', 'ad-slots', 'em-slots', 'Total Slots', 'adSlotsDefault', 'SLOT_DEFAULTS']) {
       assert.ok(appJs.includes(s), 'app.js missing: ' + s);
     }
     const css = await (await fetch('http://127.0.0.1:3101/styles.css')).text();
-    for (const s of ['@keyframes pageIn', '@keyframes cardIn', 'splashPulse', 'splashSpin', '.spinner', '.chat-fab', '.banner-carousel', 'prefers-reduced-motion', '.shield-tile', '.shield-label', '.help-row', '.help-contact', '.page-head', '.squad-box', '.sub-card', '.avatar-img', '.avatar-cam', '.profile-tiles', '.profile-tile', '.menu-list', '.menu-row', '.edit-pill', '.id-pill', '.wallet-hero', '.wallet-tiles', '.wallet-tile', '.wallet-actions', '.wallet-btn', '.wallet-btn-blue', '.wallet-btn-green', '.wallet-btn-purple', '.addmoney-hero', '.addmoney-ic', '.dep-note', '.gw-pills', '.gw-pill', '.amt-box', '.btn-proceed']) {
+    for (const s of ['@keyframes pageIn', '@keyframes cardIn', 'splashPulse', 'splashSpin', '.spinner', '.chat-fab', '.banner-carousel', 'prefers-reduced-motion', '.shield-tile', '.shield-label', '.help-row', '.help-contact', '.page-head', '.squad-box', '.sub-card', '.avatar-img', '.avatar-cam', '.profile-tiles', '.profile-tile', '.menu-list', '.menu-row', '.edit-pill', '.id-pill', '.wallet-hero', '.wallet-tiles', '.wallet-tile', '.wallet-actions', '.wallet-btn', '.wallet-btn-blue', '.wallet-btn-green', '.wallet-btn-purple', '.addmoney-hero', '.addmoney-ic', '.dep-note', '.gw-pills', '.gw-pill', '.amt-box', '.btn-proceed', '.match-head', '.match-date', '.tile-ic', '.reg-row', '.join-btn', '.tutorial-pill']) {
       assert.ok(css.includes(s), 'styles.css missing: ' + s);
     }
     const man = await fetch('http://127.0.0.1:3101/manifest.webmanifest');
