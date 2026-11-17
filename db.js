@@ -96,6 +96,18 @@ CREATE TABLE IF NOT EXISTS sessions (
   profile_id INTEGER NOT NULL,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS password_resets (
+  id INTEGER PRIMARY KEY,
+  identifier TEXT NOT NULL,
+  contact TEXT NOT NULL,
+  channel TEXT NOT NULL DEFAULT 'admin',
+  code_hash TEXT NOT NULL,
+  code_plain TEXT NOT NULL DEFAULT '',
+  expires_at INTEGER NOT NULL,
+  attempts_left INTEGER NOT NULL DEFAULT 5,
+  last_sent_at INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
 `;
 
 // Postgres equivalent. Same tables; SERIAL keys, TEXT/INTEGER types.
