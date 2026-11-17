@@ -157,7 +157,7 @@ function landingHTML() {
     <div class="tagline">PLAY WIN ENJOY</div>
     <p class="muted" style="margin-top:10px">${esc(t('hero'))}</p>
     <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap">
-      <button class="btn" onclick="downloadApp()">⬇ ${esc(t('download'))}</button>
+      <button id="dl-btn" class="btn" ${(window.__s19Install && !window.__s19AppInstalled) ? '' : 'style="display:none"'} onclick="downloadApp()">⬇ ${esc(t('download'))}</button>
       <button class="btn-ghost" onclick="goApp()">▶ ${esc(t('open'))}</button>
       ${token ? '' : `<button class="btn-ghost" onclick="goAuth('login')">🔑 ${esc(t('login'))}</button>
       <button class="btn" onclick="goAuth('register')">✍️ ${esc(t('signup'))}</button>`}
@@ -330,7 +330,7 @@ window.acceptNotice = (stay) => {
 };
 async function loadMe() {
   try { const d = await api('/api/me'); profile = d.profile; wallet = d.wallet; }
-  catch (e) { token = ''; localStorage.removeItem('s19token'); profile = null; }
+  catch (e) { token = ''; localStorage.removeItem('s19token'); sessionStorage.removeItem('s19token'); profile = null; }
 }
 async function loadTournaments() {
   try { tournaments = (await api('/api/tournaments')).tournaments; } catch (e) { tournaments = []; }
@@ -799,7 +799,7 @@ const splashStart = Date.now();
 function hideSplash() {
   const el = document.getElementById('splash');
   if (!el) return;
-  const wait = Math.max(0, 1800 - (Date.now() - splashStart));
+  const wait = Math.max(0, 5000 - (Date.now() - splashStart));
   setTimeout(() => { el.classList.add('hide'); setTimeout(() => el.remove(), 500); }, wait);
 }
 function noticeSeen() { try { return sessionStorage.getItem('s19noticeSeen') === '1'; } catch (e) { return false; } }
@@ -828,10 +828,14 @@ setInterval(() => {
 
 (async () => {
   await loadTournaments();
+  const hadToken = !!token;
   if (token) { await loadMe(); if (profile) view = 'play'; }
   // Installed app: skip the landing/download page entirely —
   // splash -> login (logged out) or home (logged in). Browser links keep landing.
   if (view === 'landing' && isStandalone()) view = token ? 'play' : 'login';
+  // A saved login that stopped working goes to Login, never back to the
+  // landing/download page — a logged-in phone never sees Download again.
+  if (view === 'landing' && hadToken && !profile) view = 'login';
   render();
   hideSplash();
   // logged-in app open: splash -> Welcome Notice -> home (once per session)
