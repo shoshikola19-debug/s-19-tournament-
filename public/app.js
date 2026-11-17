@@ -20,7 +20,7 @@ let selectedMatch = null, selectedSlot = 0;
 
 const L = {
   en: { hero: 'Daily Free Fire tournaments — BR, CS and Lone Wolf. Book your slot, play the custom room, and win real Taka prizes straight to your wallet.',
-    download: 'DOWNLOAD FOR ANDROID', open: 'OPEN APP', how: 'HOW TO GET STARTED', why: 'WHY PLAY HERE',
+    download: 'DOWNLOAD FOR ANDROID', open: 'OPEN APP', login: 'Login', signup: 'Sign Up', how: 'HOW TO GET STARTED', why: 'WHY PLAY HERE',
     s1t: 'Download the App', s1: 'Tap "Download For Android". No Play Store and no big file — the app installs straight from your browser in a few seconds.',
     s2t: 'Tap "Install"', s2: 'When your browser shows the install box for S_19 Tournament, tap "Install" to add the app.',
     s3t: 'Allow Install Permission', s3: 'If your phone asks for permission, tap Allow so the S_19 Tournament icon can be placed on your home screen.',
@@ -34,7 +34,7 @@ const L = {
       ['What if a match is cancelled?', 'You get a full refund of your entry fee.']],
     about: 'About', privacy: 'Privacy Policy', terms: 'Terms and Conditions', refund: 'Refund Policy' },
   bn: { hero: 'প্রতিদিনের Free Fire টুর্নামেন্ট — BR, CS আর Lone Wolf। স্লট বুক করো, কাস্টম রুমে খেলো, আর আসল টাকা প্রাইজ জেতো সরাসরি তোমার ওয়ালেটে।',
-    download: 'অ্যান্ড্রয়েডের জন্য ডাউনলোড', open: 'অ্যাপ খুলুন', how: 'কীভাবে শুরু করবেন', why: 'কেন এখানে খেলবেন',
+    download: 'অ্যান্ড্রয়েডের জন্য ডাউনলোড', open: 'অ্যাপ খুলুন', login: 'লগইন', signup: 'সাইন আপ', how: 'কীভাবে শুরু করবেন', why: 'কেন এখানে খেলবেন',
     s1t: 'অ্যাপটি ডাউনলোড করুন', s1: '"Download For Android" চাপুন। প্লে স্টোর লাগবে না, বড় ফাইলও না — ব্রাউজার থেকেই কয়েক সেকেন্ডে ইনস্টল হবে।',
     s2t: '"Install" চাপুন', s2: 'ব্রাউজার S_19 Tournament-এর ইনস্টল বক্স দেখালে "Install" চাপুন।',
     s3t: 'ইনস্টল অনুমতি দিন', s3: 'ফোন অনুমতি চাইলে Allow চাপুন, যাতে হোম স্ক্রিনে আইকন বসে।',
@@ -132,9 +132,11 @@ function landingHTML() {
     <h1>S_19 <b>TOURNAMENT</b></h1>
     <div class="tagline">PLAY WIN ENJOY</div>
     <p class="muted" style="margin-top:10px">${esc(t('hero'))}</p>
-    <div style="display:flex;gap:10px;margin-top:18px">
+    <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap">
       <button class="btn" onclick="downloadApp()">⬇ ${esc(t('download'))}</button>
       <button class="btn-ghost" onclick="goApp()">▶ ${esc(t('open'))}</button>
+      ${token ? '' : `<button class="btn-ghost" onclick="goAuth('login')">🔑 ${esc(t('login'))}</button>
+      <button class="btn" onclick="goAuth('register')">✍️ ${esc(t('signup'))}</button>`}
     </div>
     <div class="stats">
       <div class="stat"><b>${activePlayers}</b><span>ACTIVE PLAYERS</span></div>
@@ -165,6 +167,16 @@ function landingHTML() {
 }
 window.setLang = (l) => { lang = l; localStorage.setItem('s19lang', l); render(); };
 window.goApp = () => { view = token ? 'play' : 'login'; render(); };
+window.goAuth = (v) => { view = (v === 'register') ? 'register' : 'login'; render(); };
+// Installed app (PWA standalone) opens straight into the app — no landing page.
+function isStandalone() {
+  try {
+    return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+      || window.navigator.standalone === true
+      || new URLSearchParams(location.search).get('app') === '1';
+  } catch (e) { return false; }
+}
+window.backHome = () => { view = isStandalone() ? (token ? 'play' : 'login') : 'landing'; render(); };
 window.downloadApp = async () => {
   if (window.__s19Install) {
     try { await window.__s19Install.prompt(); return; } catch (e) {}
@@ -206,15 +218,15 @@ function authHTML() {
     ${isLogin ? `<p class="center" style="margin-top:12px"><a href="#" onclick="openForgot();return false">Forgot Password?</a></p>` : ''}
     <p class="center muted" style="margin-top:18px;letter-spacing:2px;font-size:11px">VERSION 1.0.0</p>
     <p class="center muted" style="margin-top:14px">${isLogin ? "Don't have an account? " : 'Already have an account? '}
-      <a href="#" onclick="view='${isLogin ? 'register' : 'login'}';render();return false">${isLogin ? 'Sign Up' : 'Login'}</a></p>
-    <p class="center"><a href="#" onclick="view='landing';render();return false">← Back to home</a></p>
+      <a href="#" onclick="goAuth('${isLogin ? 'register' : 'login'}');return false">${isLogin ? 'Sign Up' : 'Login'}</a></p>
+    <p class="center"><a href="#" onclick="backHome();return false">← Back to home</a></p>
   </div></div>`;
 }
 window.doLogin = async () => {
   try {
     const d = await api('/api/login', { method: 'POST', body: JSON.stringify({ emailOrUsername: $('#f-email').value.trim(), password: $('#f-password').value }) });
     saveToken(d.token, $('#f-remember') ? $('#f-remember').checked : true);
-    await loadMe(); showNotice();
+    await loadMe(); view = 'play'; showNotice();
   } catch (e) { $('#auth-err').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 };
 window.doRegister = async () => {
@@ -224,7 +236,7 @@ window.doRegister = async () => {
   try {
     const d = await api('/api/register', { method: 'POST', body: JSON.stringify({ username: $('#f-username').value.trim(), email: $('#f-email').value.trim(), phone: $('#f-phone').value.trim(), password: pw }) });
     saveToken(d.token, true);
-    await loadMe(); showNotice();
+    await loadMe(); view = 'play'; showNotice();
   } catch (e) { $('#auth-err').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 };
 window.openForgot = () => {
@@ -360,11 +372,20 @@ function playHTML() {
       <div class="car-ic">🎧</div>
       <div><b>Need any Help?</b><div class="car-sub">Customer Support 24/7 — tap here to contact the admin.</div></div>
     </div>
-    <div class="car-dots"><button class="car-dot on" onclick="bannerGo(0)" aria-label="Slide 1"></button><button class="car-dot" onclick="bannerGo(1)" aria-label="Slide 2"></button></div>
+    <div class="car-slide car-telegram" onclick="openSupport()">
+      <div class="car-ic">✈️</div>
+      <div><b>S_19 on Telegram</b><div class="car-sub">Match updates &amp; announcements — tap to contact Support.</div></div>
+    </div>
+    <div class="car-dots"><button class="car-dot on" onclick="bannerGo(0)" aria-label="Slide 1"></button><button class="car-dot" onclick="bannerGo(1)" aria-label="Slide 2"></button><button class="car-dot" onclick="bannerGo(2)" aria-label="Slide 3"></button></div>
   </div>
   <div class="card center help-card" style="background:linear-gradient(135deg,#2a0d0d,#161616)">📢 <b>Need any Help? Customer Support</b><br><span class="muted">Support is available 24/7 for any match problem.</span><button class="btn" style="margin-top:10px" onclick="openSupport()">📞 Contact Support</button></div>
   <div class="cat-cards">
-    ${[['br', 'BR MATCHES', 'Solo • Duo • Esports PRO'], ['cs', 'CS MATCHES', '4v4 • 1v1 • Headshot Only'], ['lw', 'LW MATCHES', '1v1 • 2v2 • Lose To Win • Headshot Only']].map(([c, lb, sub]) => { const n = tournaments.filter((m) => m.category === c && m.status === 'upcoming').length; return `<button class="cat-card" onclick="goCategory('${c}')"><b>${lb}</b><span>${sub}</span><span class="live-badge">● ${n} Live</span></button>`; }).join('')}
+    ${[['br', 'BR MATCH', 'BR MATCHES', 'Solo • Duo • Esports PRO'], ['cs', 'CS MATCH', 'CS MATCHES', '4v4 • 1v1 • Headshot Only'], ['lw', 'LONE WOLF MATCH', 'LW MATCHES', '1v1 • 2v2 • Lose To Win • Headshot Only']].map(([c, badge, lb, sub]) => { const n = tournaments.filter((m) => m.category === c && m.status === 'upcoming').length; return `<button class="cat-card cat-${c}" onclick="goCategory('${c}')">
+      <span class="cat-glow"></span>
+      <img class="cat-logo" src="/logo.webp" alt="" onerror="this.style.display='none'">
+      <span class="cat-body"><span class="cat-badge">${badge}</span><b class="cat-title">${lb}</b><span class="cat-sub">${sub}</span><span class="live-badge">● ${n} Live</span></span>
+      <span class="cat-arrow">›</span>
+    </button>`; }).join('')}
   </div>
   <div class="tabs">
     <button class="${category === 'br' ? 'on' : ''}" onclick="category='br';subcategory='Solo';render()">BR MATCHES (${tournaments.filter((m) => m.category === 'br').length})</button>
@@ -583,6 +604,7 @@ function profileHTML() {
     <button class="btn-ghost" style="margin-top:8px" onclick="showNotice(1)">📜 All Rules</button>
     <button class="btn-ghost" style="margin-top:8px" onclick="devProfile()">👨‍💻 Developer Profile</button>
     ${profile && profile.isAdmin ? `<button class="btn" style="margin-top:8px" onclick="view='admin';render()">⚙️ Admin Panel</button>` : ''}
+    <button class="btn-ghost" style="margin-top:8px" onclick="switchAccount()">🔄 Switch Account</button>
     <button class="btn-ghost" style="margin-top:8px" onclick="logout()">🚪 Logout</button>
   </div></div>${bottomnavHTML()}`;
 }
@@ -602,7 +624,8 @@ window.dailySpin = async () => {
   catch (e) { toast(e.message); }
 };
 window.devProfile = () => openModal(`<h2>Developer Profile</h2><div class="card center"><img class="logo" src="/logo.webp" onerror="this.src='/icon-512.png'"><p style="margin-top:10px"><b>S_19</b></p><p class="muted">Voice of Bijoy · S_19 Tournament · S_19 CHAT BOOK · BR 19</p></div><button class="btn" style="margin-top:14px" onclick="closeModal()">Close</button>`);
-window.logout = () => { clearToken(); profile = null; wallet = null; view = 'landing'; render(); };
+window.logout = () => { clearToken(); profile = null; wallet = null; view = 'login'; render(); toast('Logged out'); };
+window.switchAccount = () => { clearToken(); profile = null; wallet = null; view = 'login'; render(); toast('Login with another account, or Sign Up for a new one'); };
 
 async function adminHTML() {
   const d = await api('/api/tournaments/admin');
@@ -732,6 +755,9 @@ setInterval(() => {
 (async () => {
   await loadTournaments();
   if (token) { await loadMe(); if (profile) view = 'play'; }
+  // Installed app: skip the landing/download page entirely —
+  // splash -> login (logged out) or home (logged in). Browser links keep landing.
+  if (view === 'landing' && isStandalone()) view = token ? 'play' : 'login';
   render();
   hideSplash();
   // logged-in app open: splash -> Welcome Notice -> home (once per session)
