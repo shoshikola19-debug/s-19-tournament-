@@ -84,12 +84,33 @@ function req(method, p, body, token) {
     const spin2 = await req('POST', '/api/spin', {}, ownerToken);
     assert.strictEqual(spin2.status, 400, 'second spin same day refused');
 
+    // forgot password: reset works, old password stops working
+    const fp = await req('POST', '/api/forgot-password', { email: 'shoshikola19@gmail.com', newPassword: 'newpass99' });
+    assert.strictEqual(fp.status, 200, 'forgot password: ' + JSON.stringify(fp.data));
+    const fpNo = await req('POST', '/api/forgot-password', { email: 'nobody@example.com', newPassword: 'newpass99' });
+    assert.strictEqual(fpNo.status, 400, 'forgot with unknown email rejected');
+    const oldLogin = await req('POST', '/api/login', { emailOrUsername: 'shoshikola19@gmail.com', password: 'test1234' });
+    assert.strictEqual(oldLogin.status, 400, 'old password rejected after reset');
+    const newLogin = await req('POST', '/api/login', { emailOrUsername: 'shoshikola19@gmail.com', password: 'newpass99' });
+    assert.strictEqual(newLogin.status, 200, 'login with new password works');
+
     // payment info + landing page + manifest
     const pay = await req('GET', '/api/payment-info');
     assert.strictEqual(pay.data.bkashNumber, '01906502081', 'bKash number seeded');
     const page = await fetch('http://127.0.0.1:3101/');
     assert.strictEqual(page.status, 200, 'landing serves');
     assert.ok((await page.text()).includes('S_19 TOURNAMENT'), 'landing has title');
+    // new UI: banner carousel, category cards, chat fab, bell, step dots,
+    // team boxes, Match Full, tutorial, Remember Me, Forgot, results tabs,
+    // support modal + animations must be present in served files
+    const appJs = await (await fetch('http://127.0.0.1:3101/app.js')).text();
+    for (const s of ['banner-carousel', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'DEPOSIT BALANCE', 'TOTAL WON']) {
+      assert.ok(appJs.includes(s), 'app.js missing: ' + s);
+    }
+    const css = await (await fetch('http://127.0.0.1:3101/styles.css')).text();
+    for (const s of ['@keyframes pageIn', '@keyframes cardIn', 'splashPulse', 'splashSpin', '.spinner', '.chat-fab', '.banner-carousel', 'prefers-reduced-motion']) {
+      assert.ok(css.includes(s), 'styles.css missing: ' + s);
+    }
     const man = await fetch('http://127.0.0.1:3101/manifest.webmanifest');
     assert.strictEqual(man.status, 200, 'manifest serves');
     const icon = await fetch('http://127.0.0.1:3101/icon-512.png');
