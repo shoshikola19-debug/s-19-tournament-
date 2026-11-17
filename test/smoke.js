@@ -70,6 +70,20 @@ function req(method, p, body, token) {
     me = await req('GET', '/api/me', null, ownerToken);
     assert.strictEqual(me.data.wallet.depositBalance, 180, 'fee 20 charged');
 
+    // squad join: second user books CS 4v4 slot 1 with 3 teammates; names are stored
+    const reg2 = await req('POST', '/api/register', { username: 'squadmate', email: 'squad@example.com', phone: '+8801912345678', password: 'test1234' });
+    assert.strictEqual(reg2.status, 200, 'second user register: ' + JSON.stringify(reg2.data));
+    const tok2 = reg2.data.token;
+    await req('POST', '/api/profile', { ign: 'squadmate', uid: '1234567890' }, tok2);
+    const sq = await req('POST', '/api/tournaments/5/book', { slotNumber: 1, playerName: 'squadmate', squadNames: ['mate1', 'mate2', 'mate3'] }, tok2);
+    assert.strictEqual(sq.status, 200, 'squad book CS 4v4: ' + JSON.stringify(sq.data));
+    const sqBad = await req('POST', '/api/tournaments/5/book', { slotNumber: 2, playerName: 'squadmate', squadNames: ['a', 'b', 'c', 'd'] }, tok2);
+    assert.strictEqual(sqBad.status, 400, '4 squad names rejected');
+    const afterSq = await req('GET', '/api/tournaments');
+    const cs44 = afterSq.data.tournaments.find((t) => t.id === 5);
+    const sqBk = cs44.bookings.find((b) => b.slot_number === 1);
+    assert.ok(sqBk && JSON.parse(sqBk.squad_names || '[]').join(',') === 'mate1,mate2,mate3', 'squad names stored on booking');
+
     // publish result: 1st place, 7 kills -> prize 90 + 7*10 = 160 to winning
     const res = await req('POST', '/api/results', { tournamentId: 2, profileId: me.data.profile.id, playerName: 'bijoy', placement: 1, kills: 7 }, ownerToken);
     assert.strictEqual(res.status, 200, 'publish result');
@@ -104,11 +118,11 @@ function req(method, p, body, token) {
     // team boxes, Match Full, tutorial, Remember Me, Forgot, results tabs,
     // support modal + animations must be present in served files
     const appJs = await (await fetch('http://127.0.0.1:3101/app.js')).text();
-    for (const s of ['banner-carousel', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'DEPOSIT BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-badge', 'cat-arrow', 'S_19 on Telegram', 'backHome']) {
+    for (const s of ['banner-carousel', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'DEPOSIT BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'S_19 on Telegram', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'Join with Squad', 'squadNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League']) {
       assert.ok(appJs.includes(s), 'app.js missing: ' + s);
     }
     const css = await (await fetch('http://127.0.0.1:3101/styles.css')).text();
-    for (const s of ['@keyframes pageIn', '@keyframes cardIn', 'splashPulse', 'splashSpin', '.spinner', '.chat-fab', '.banner-carousel', 'prefers-reduced-motion']) {
+    for (const s of ['@keyframes pageIn', '@keyframes cardIn', 'splashPulse', 'splashSpin', '.spinner', '.chat-fab', '.banner-carousel', 'prefers-reduced-motion', '.shield-tile', '.shield-label', '.help-row', '.help-contact', '.page-head', '.squad-box', '.sub-card']) {
       assert.ok(css.includes(s), 'styles.css missing: ' + s);
     }
     const man = await fetch('http://127.0.0.1:3101/manifest.webmanifest');
