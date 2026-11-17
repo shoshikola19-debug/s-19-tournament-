@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   profile_id INTEGER NOT NULL,
   slot_number INTEGER NOT NULL,
   player_name TEXT NOT NULL,
+  squad_names TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'pending',
   created_at TEXT NOT NULL,
   UNIQUE (tournament_id, slot_number)
@@ -119,6 +120,8 @@ async function init() {
       ssl: { rejectUnauthorized: false },
     });
     await pgPool.query(PG_SCHEMA);
+    // Migration: squad names on bookings (safe to re-run — ignored if present).
+    try { await pgPool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS squad_names TEXT NOT NULL DEFAULT ''`); } catch (e) {}
     engine = 'postgres';
     return engine;
   }
@@ -127,6 +130,8 @@ async function init() {
   fs.mkdirSync(dir, { recursive: true });
   sqliteDb = new DatabaseSync(path.join(dir, 's19-tournament.db'));
   sqliteDb.exec(SQLITE_SCHEMA);
+  // Migration for DB files created before the squad_names column existed.
+  try { sqliteDb.exec(`ALTER TABLE bookings ADD COLUMN squad_names TEXT NOT NULL DEFAULT ''`); } catch (e) {}
   engine = 'sqlite';
   return engine;
 }
