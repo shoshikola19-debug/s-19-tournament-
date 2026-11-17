@@ -276,21 +276,67 @@ window.doRegister = async () => {
     $('#auth-err').innerHTML = `<div class="err">${esc(e.message)}${dup ? ` <a href="#" onclick="goAuth('login');return false">Login</a>` : ''}</div>`;
   }
 };
+let fpContact = '', fpCooldownTimer = null;
 window.openForgot = () => {
+  fpContact = '';
   openModal(`<h2>Forgot Password</h2>
-  <p class="muted">Enter your account email and a new password. Your old password will stop working right away.</p>
-  <div class="field"><label>Email</label><input id="fp-email" type="email" placeholder="you@example.com"></div>
+  <p class="muted">Enter the email or phone number on your account. We will send you a 6-digit reset code.</p>
+  <div class="field"><label>Email or Phone</label><input id="fp-contact" type="text" placeholder="Email or phone number"></div>
+  <div id="fp-err"></div>
+  <button class="btn" style="margin-top:14px" onclick="doForgotSend()">Send Code</button>`);
+};
+window.doForgotSend = async () => {
+  const contact = $('#fp-contact').value.trim();
+  if (!contact) { $('#fp-err').innerHTML = '<div class="err">Enter your email or phone number</div>'; return; }
+  try {
+    const d = await api('/api/forgot-password/request', { method: 'POST', body: JSON.stringify({ emailOrPhone: contact }) });
+    fpContact = contact;
+    openForgotStep2(d.message || 'Code sent — check your email. If you didn\'t get it, contact Support.');
+  } catch (e) { $('#fp-err').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+};
+function openForgotStep2(note) {
+  openModal(`<h2>Enter Reset Code</h2>
+  <p class="muted">${esc(note)}</p>
+  <div class="field"><label>6-digit code</label><input id="fp-code" type="text" inputmode="numeric" maxlength="6" placeholder="••••••"></div>
   <div class="field"><label>New password (4+ characters)</label><input id="fp-pw" type="password" placeholder="••••••••"></div>
   <div class="field"><label>Confirm new password</label><input id="fp-pw2" type="password" placeholder="••••••••"></div>
   <div id="fp-err"></div>
-  <button class="btn" style="margin-top:14px" onclick="doForgot()">Reset Password</button>`);
+  <button class="btn" style="margin-top:14px" onclick="doForgotVerify()">Reset Password</button>
+  <button class="btn-ghost" style="margin-top:8px" id="fp-resend" onclick="doForgotResend()">Resend Code</button>`);
+  startFpCooldown(60);
+}
+function startFpCooldown(sec) {
+  const btn = $('#fp-resend');
+  if (!btn) return;
+  clearInterval(fpCooldownTimer);
+  let left = sec;
+  btn.disabled = true;
+  btn.textContent = `Resend Code (${left}s)`;
+  fpCooldownTimer = setInterval(() => {
+    left -= 1;
+    const b = $('#fp-resend');
+    if (!b) { clearInterval(fpCooldownTimer); return; }
+    if (left <= 0) { clearInterval(fpCooldownTimer); b.disabled = false; b.textContent = 'Resend Code'; return; }
+    b.textContent = `Resend Code (${left}s)`;
+  }, 1000);
+}
+window.doForgotResend = async () => {
+  try {
+    const d = await api('/api/forgot-password/request', { method: 'POST', body: JSON.stringify({ emailOrPhone: fpContact }) });
+    $('#fp-err').innerHTML = `<div class="okmsg">${esc(d.message || 'Code sent again.')}</div>`;
+    startFpCooldown(60);
+  } catch (e) {
+    $('#fp-err').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+    const m = /wait (\d+)/i.exec(e.message || '');
+    if (m) startFpCooldown(Number(m[1]));
+  }
 };
-window.doForgot = async () => {
+window.doForgotVerify = async () => {
   const pw = $('#fp-pw').value, pw2 = $('#fp-pw2').value;
   if (pw !== pw2) { $('#fp-err').innerHTML = '<div class="err">Passwords do not match</div>'; return; }
   try {
-    await api('/api/forgot-password', { method: 'POST', body: JSON.stringify({ email: $('#fp-email').value.trim(), newPassword: pw }) });
-    closeModal(); toast('Password reset — login with your new password');
+    await api('/api/forgot-password/verify', { method: 'POST', body: JSON.stringify({ emailOrPhone: fpContact, code: $('#fp-code').value.trim(), newPassword: pw }) });
+    closeModal(); toast('Password reset — login with your new password'); view = 'login'; render();
   } catch (e) { $('#fp-err').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 };
 const LW1V1_SHORT = [
@@ -883,6 +929,8 @@ window.switchAccount = () => { clearToken(); profile = null; wallet = null; view
 async function adminHTML() {
   const d = await api('/api/tournaments/admin');
   adminTournaments = d.tournaments;
+  let resets = [];
+  try { resets = (await api('/api/admin/reset-requests')).requests || []; } catch (e) {}
   const pendTx = wallet ? [] : [];
   return `${topbarHTML()}<div class="wrap"><h2 style="margin-top:14px">Admin Panel</h2>
   <div class="card"><h3>Create custom room</h3>
@@ -925,6 +973,10 @@ async function adminHTML() {
     <div class="field"><label>Placement (1-5)</label><input id="rs-place" type="number" value="1"></div>
     <div class="field"><label>Kills</label><input id="rs-kills" type="number" value="0"></div>
     <button class="btn" style="margin-top:12px" onclick="publishResult()">Publish Result</button></div>
+  <div class="card"><h3>🔑 Password Reset Requests</h3>
+  ${resets.length ? resets.map((r) => `<div class="kv"><span>${esc(r.contact)} · ${esc(r.channel)} · ${r.attemptsLeft} tries left · expires ${new Date(r.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${r.code ? ` · <b>Code: ${esc(r.code)}</b>` : ' · code emailed'}</span><button class="btn-ghost btn-sm" onclick="cancelReset(${r.id})">Cancel</button></div>`).join('')
+    : '<p class="muted">No pending reset requests.</p>'}
+  <p class="muted">Codes are emailed when SMTP is set up; otherwise the code shows here only for the admin, so Support can share it with the player.</p></div>
   <div class="card"><h3>Payment settings</h3>
     <div class="field"><label>bKash number</label><input id="pay-bkash" placeholder="01XXXXXXXXX"></div>
     <div class="field"><label>Nagad number</label><input id="pay-nagad" placeholder="01XXXXXXXXX"></div>
@@ -932,6 +984,10 @@ async function adminHTML() {
     <button class="btn" style="margin-top:12px" onclick="savePayment()">Save Payment Numbers</button></div>
   </div>${bottomnavHTML()}`;
 }
+window.cancelReset = async (id) => {
+  try { await api(`/api/admin/reset-requests/${id}`, { method: 'DELETE' }); render(); toast('Reset request cancelled'); }
+  catch (e) { toast(e.message); }
+};
 window.adSub = () => {
   const c = $('#ad-cat').value;
   $('#ad-sub').innerHTML = SUBS[c].map((s) => `<option>${s}</option>`).join('');
