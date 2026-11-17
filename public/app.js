@@ -67,6 +67,14 @@ function toast(msg) {
 }
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function fmtDate(d) { return d; }
+function fmtDateTime(m) {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const [y, mo, da] = m.matchDate.split('-').map(Number);
+  const [h, mi] = m.matchTime.split(':').map(Number);
+  const ap = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${da} ${months[mo - 1]} ${y} ${String(h12).padStart(2, '0')}:${String(mi).padStart(2, '0')} ${ap}`;
+}
 function matchStartMs(m) {
   const [y, mo, da] = m.matchDate.split('-').map(Number);
   const [h, mi] = m.matchTime.split(':').map(Number);
@@ -360,26 +368,33 @@ function matchCard(m) {
   const isLW1v1 = m.category === 'lw' && m.subcategory === '1v1';
   const rulesLine = (m.category === 'br' || m.category === 'lw')
     ? `<p class="rules-line">🚫 ম্যাচে জয়েন করার আগে রুলস পড়ে নেন। রুলস ভঙ্গ করলে রিওয়ার্ড দেওয়া হবে না &amp; রিফান্ড পাবেন না</p>` : '';
+  const shield = (SUB_META[m.category] && SUB_META[m.category].shield[m.subcategory]) || 'S_19 TOURNAMENT';
+  const tile = (ic, cls, label, val, gold) => `<div class="tile"><span class="tile-ic ${cls}">${ic}</span><span class="tile-txt"><span>${label}</span><b class="${gold ? 'gold' : ''}">${val}</b></span></div>`;
   return `<div class="card match">
     <span class="badge">#${m.id}</span>
-    <h3 style="cursor:pointer" onclick="${isLW1v1 ? `showLW1v1Rules(${m.id})` : ''}">${esc(m.title)}</h3>
-    <div class="mid">📅 ${esc(m.matchDate)} ${esc(m.matchTime)} · ${esc(m.subcategory)} · ${esc(m.mode)} · ${esc(m.matchType)}</div>
+    <div class="match-head">
+      <span class="shield-tile sm"><img class="shield-logo" src="/logo.webp" alt="" onerror="this.style.display='none'"><span class="shield-label">${esc(shield)}</span></span>
+      <div class="match-head-txt">
+        <h3 style="cursor:pointer" onclick="${isLW1v1 ? `showLW1v1Rules(${m.id})` : ''}">${esc(m.title)}</h3>
+        <div class="match-date">📅 ${esc(fmtDateTime(m))}</div>
+      </div>
+    </div>
     ${rulesLine}
     <div class="tiles">
-      <div class="tile"><span>PRIZE</span><b class="gold">${m.prizePool} TK</b></div>
-      <div class="tile"><span>TYPE</span><b>${esc(m.subcategory)}</b></div>
-      <div class="tile"><span>FEE</span><b>${m.entryFee} TK</b></div>
-      <div class="tile"><span>KILL</span><b>${m.perKillPrize} TK</b></div>
-      <div class="tile"><span>MAP</span><b>${esc(m.map)}</b></div>
-      <div class="tile"><span>POV</span><b>${esc(m.pov)}</b></div>
+      ${tile('🏆', 'ic-gold', 'PRIZE', m.prizePool + ' TK', true)}
+      ${tile('👤', 'ic-blue', 'TYPE', esc(m.subcategory), false)}
+      ${tile('🪙', 'ic-green', 'FEE', m.entryFee + ' TK', false)}
+      ${tile('💀', 'ic-red', 'KILL', m.perKillPrize + ' TK', false)}
+      ${tile('🗺️', 'ic-teal', 'MAP', esc(m.map), false)}
+      ${tile('👁️', 'ic-purple', 'POV', esc(m.pov), false)}
     </div>
-    <div style="display:flex;justify-content:space-between;margin-top:12px;font-size:13px"><span>👥 Registration</span><b>${taken}/${m.totalSlots}</b></div>
+    <div class="reg-row"><span class="reg-label">👥 Registration</span><b>${taken}/${m.totalSlots}</b></div>
     <div class="regbar"><i style="width:${pct}%"></i></div>
-    <button class="btn ${full ? 'btn-full' : ''}" style="margin-top:12px" ${m.status !== 'upcoming' || full ? 'disabled' : ''} onclick="openSlots(${m.id})">${full ? 'Match Full' : '🚀 Join Now'}</button>
+    <button class="btn join-btn ${full ? 'btn-full' : ''}" ${m.status !== 'upcoming' || full ? 'disabled' : ''} onclick="openSlots(${m.id})">${full ? 'Match Full' : '🚀 Join Now'}</button>
     <div class="row3">
-      <button class="btn-ghost" onclick="openSlots(${m.id})">👥 Slots</button>
-      <button class="btn-ghost" onclick="openRoom(${m.id})">🚪 Room</button>
-      <button class="btn-ghost" onclick="openPrizes(${m.id})">🏆 Prizes</button>
+      <button class="btn" onclick="openSlots(${m.id})">👥 Slots</button>
+      <button class="btn" onclick="openRoom(${m.id})">🚪 Room</button>
+      <button class="btn" onclick="openPrizes(${m.id})">🏆 Prizes</button>
     </div>
     <div class="countdown" data-cd="${m.id}" data-start="${matchStartMs(m)}" data-status="${m.status}">${esc(countdownText(m))}</div>
   </div>`;
@@ -441,14 +456,13 @@ function categoryHTML() {
 function listHTML() {
   const list = tournaments.filter((m) => m.category === category && m.subcategory === subcategory);
   return `${topbarHTML()}<div class="wrap">
-  <div class="page-head"><button class="back-arrow" onclick="backToCategory()" aria-label="Back">←</button><h2>${SUB_META[category].labels[subcategory] || esc(subcategory)}</h2><span class="head-spacer"></span></div>
+  <div class="page-head"><button class="back-arrow" onclick="backToCategory()" aria-label="Back">←</button><h2>${SUB_META[category].labels[subcategory] || esc(subcategory)}</h2><button class="tutorial-pill" onclick="openTutorial()">▶ Tutorial</button></div>
   <div class="tabs">
     <button class="${category === 'br' ? 'on' : ''}" onclick="openCategory('br')">BR MATCHES (${tournaments.filter((m) => m.category === 'br').length})</button>
     <button class="${category === 'cs' ? 'on' : ''}" onclick="openCategory('cs')">CS MATCHES (${tournaments.filter((m) => m.category === 'cs').length})</button>
     <button class="${category === 'lw' ? 'on' : ''}" onclick="openCategory('lw')">LW MATCHES (${tournaments.filter((m) => m.category === 'lw').length})</button>
   </div>
   <div class="subtabs">${SUBS[category].map((s) => `<button class="${subcategory === s ? 'on' : ''}" onclick="openSub('${category}','${esc(s)}')">${s}</button>`).join('')}</div>
-  <button class="btn-ghost" style="margin-top:12px" onclick="openTutorial()">▶ Tutorial — How to Join</button>
   ${list.length ? list.map((m, i) => `<div class="anim-in" style="animation-delay:${i * 70}ms">${matchCard(m)}</div>`).join('') : '<div class="card center muted">No matches in this list yet.</div>'}
   </div>${bottomnavHTML()}`;
 }
@@ -502,10 +516,12 @@ window.openSlots = (id) => {
   const myBooking = selectedMatch.bookings.find((b) => profile && b.profile_id === profile.id && (b.status === 'pending' || b.status === 'approved'));
   const slotBtn = (n) => `<button class="slot ${taken.has(n) ? 'taken' : ''}" ${taken.has(n) ? 'disabled' : ''} onclick="selectSlot(${n},this)">${n}</button>`;
   const teamOf = (label, nums) => `<div class="team-box"><div class="team-title">${label}</div><div class="slotgrid">${nums.map(slotBtn).join('')}</div></div>`;
-  const isTeam = (selectedMatch.category === 'cs' && (selectedMatch.subcategory === '4v4' || selectedMatch.subcategory === 'Headshot Only')) || (selectedMatch.category === 'lw' && selectedMatch.subcategory === '2v2');
-  const perTeam = selectedMatch.category === 'lw' ? 2 : 4;
+  const isTeam = isTeamMatch(selectedMatch);
+  // Team boxes split the total slots half/half (odd total: Team 1 gets the extra one),
+  // so custom slot counts still render correctly.
+  const half = Math.ceil(selectedMatch.totalSlots / 2);
   const grid = isTeam
-    ? teamOf('Team 1', Array.from({ length: perTeam }, (_, i) => i + 1)) + teamOf('Team 2', Array.from({ length: perTeam }, (_, i) => perTeam + i + 1))
+    ? teamOf('Team 1', Array.from({ length: half }, (_, i) => i + 1)) + teamOf('Team 2', Array.from({ length: selectedMatch.totalSlots - half }, (_, i) => half + i + 1))
     : `<div class="slotgrid">${Array.from({ length: selectedMatch.totalSlots }, (_, i) => slotBtn(i + 1)).join('')}</div>`;
   openModal(`<h2>Select a Slot</h2>
   <div class="step-dots"><span class="step-dot on">1</span><span class="step-dot">2</span><span class="step-dot">3</span><span class="step-dot">4</span></div>
@@ -867,12 +883,13 @@ async function adminHTML() {
   <div class="card"><h3>Create custom room</h3>
     <div class="field"><label>Room name</label><input id="ad-title" maxlength="160" placeholder="e.g. BR Solo — Evening"></div>
     <div class="field"><label>Lobby</label><select id="ad-cat" onchange="adSub()"><option value="br">BR</option><option value="cs">CS</option><option value="lw">LW</option></select></div>
-    <div class="field"><label>Subcategory</label><select id="ad-sub"></select></div>
+    <div class="field"><label>Subcategory</label><select id="ad-sub" onchange="adSlotsDefault()"></select></div>
     <div class="field"><label>Date</label><input id="ad-date" type="date" value="2026-11-20"></div>
     <div class="field"><label>Time</label><input id="ad-time" type="time" value="18:00"></div>
     <div class="field"><label>Prize (TK)</label><input id="ad-prize" type="number" value="800"></div>
     <div class="field"><label>Entry fee (TK)</label><input id="ad-fee" type="number" value="20"></div>
     <div class="field"><label>Per kill (TK)</label><input id="ad-kill" type="number" value="10"></div>
+    <div class="field"><label>Total Slots (2–100)</label><input id="ad-slots" type="number" min="2" max="100" value="48"></div>
     <h4 style="margin-top:14px">🏆 Match Prizes (1st – 5th)</h4>
     <div class="field"><label>1st Prize (TK)</label><input id="ad-prize1" type="number" value="90"></div>
     <div class="field"><label>2nd Prize (TK)</label><input id="ad-prize2" type="number" value="70"></div>
@@ -916,6 +933,14 @@ window.adSub = () => {
   // BR gets the standard 90/70/40/30/20 rank split by default; CS/LW start blank.
   const defs = c === 'br' ? [90, 70, 40, 30, 20] : ['', '', '', '', ''];
   for (let i = 1; i <= 5; i++) { const el = $('#ad-prize' + i); if (el) el.value = defs[i - 1]; }
+  adSlotsDefault();
+};
+// Default slot count for the picked category/subcategory — the admin can
+// type any number 2–100 over it. Same defaults as the server.
+const SLOT_DEFAULTS = { 'br/Solo': 48, 'br/Duo': 50, 'br/Esports PRO': 50, 'cs/4v4': 8, 'cs/1v1': 2, 'cs/Headshot Only': 8, 'lw/1v1': 2, 'lw/2v2': 4, 'lw/Lose To Win': 2, 'lw/Headshot Only': 8 };
+window.adSlotsDefault = () => {
+  const el = $('#ad-slots');
+  if (el) el.value = SLOT_DEFAULTS[$('#ad-cat').value + '/' + $('#ad-sub').value] ?? 8;
 };
 window.createMatch = async () => {
   try {
@@ -925,6 +950,7 @@ window.createMatch = async () => {
       matchType: $('#ad-cat').value === 'br' ? 'battle_royale' : $('#ad-cat').value === 'cs' ? 'clash_squad' : 'lone_wolf',
       matchDate: $('#ad-date').value, matchTime: $('#ad-time').value,
       prizePool: Number($('#ad-prize').value), entryFee: Number($('#ad-fee').value),
+      totalSlots: Number($('#ad-slots').value),
       prize1: Number($('#ad-prize1').value) || 0, prize2: Number($('#ad-prize2').value) || 0,
       prize3: Number($('#ad-prize3').value) || 0, prize4: Number($('#ad-prize4').value) || 0,
       prize5: Number($('#ad-prize5').value) || 0,
@@ -939,11 +965,14 @@ window.deleteMatch = async (id) => { if (confirm('Delete this match? Entry fees 
 window.reviewBooking = async (id, ok) => { await api(`/api/bookings/${id}/review`, { method: 'POST', body: JSON.stringify({ approve: ok }) }); render(); };
 window.editMatch = (id) => {
   const m = adminTournaments.find((x) => x.id === id);
+  const booked = (m.bookings || []).filter((b) => b.status === 'pending' || b.status === 'approved').length;
   openModal(`<h2>Edit Match #${id}</h2>
   <div class="field"><label>Date</label><input id="em-date" type="date" value="${m.matchDate}"></div>
   <div class="field"><label>Time</label><input id="em-time" type="time" value="${m.matchTime}"></div>
   <div class="field"><label>Prize</label><input id="em-prize" type="number" value="${m.prizePool}"></div>
   <div class="field"><label>Entry fee</label><input id="em-fee" type="number" value="${m.entryFee}"></div>
+  <div class="field"><label>Total Slots (2–100)</label><input id="em-slots" type="number" min="2" max="100" value="${m.totalSlots}"></div>
+  ${booked ? `<p class="muted">⚠ ${booked} slot(s) already booked — slots cannot go below ${booked}.</p>` : ''}
   <h4 style="margin-top:14px">🏆 Match Prizes (1st – 5th)</h4>
   <div class="field"><label>1st Prize (TK)</label><input id="em-prize1" type="number" value="${m.prize1 || ''}"></div>
   <div class="field"><label>2nd Prize (TK)</label><input id="em-prize2" type="number" value="${m.prize2 || ''}"></div>
@@ -952,11 +981,14 @@ window.editMatch = (id) => {
   <div class="field"><label>5th Prize (TK)</label><input id="em-prize5" type="number" value="${m.prize5 || ''}"></div>
   <div class="field"><label>Room ID</label><input id="em-roomid" value="${esc(m.roomId)}"></div>
   <div class="field"><label>Room password</label><input id="em-roompw" value="${esc(m.roomPassword)}"></div>
+  <div id="em-err"></div>
   <button class="btn" style="margin-top:14px" onclick="saveEditMatch(${id})">Save</button>`);
 };
 window.saveEditMatch = async (id) => {
-  await api(`/api/tournaments/${id}`, { method: 'PUT', body: JSON.stringify({ matchDate: $('#em-date').value, matchTime: $('#em-time').value, prizePool: Number($('#em-prize').value), entryFee: Number($('#em-fee').value), prize1: Number($('#em-prize1').value) || 0, prize2: Number($('#em-prize2').value) || 0, prize3: Number($('#em-prize3').value) || 0, prize4: Number($('#em-prize4').value) || 0, prize5: Number($('#em-prize5').value) || 0, roomId: $('#em-roomid').value, roomPassword: $('#em-roompw').value }) });
-  closeModal(); await loadTournaments(); render();
+  try {
+    await api(`/api/tournaments/${id}`, { method: 'PUT', body: JSON.stringify({ matchDate: $('#em-date').value, matchTime: $('#em-time').value, prizePool: Number($('#em-prize').value), entryFee: Number($('#em-fee').value), totalSlots: Number($('#em-slots').value), prize1: Number($('#em-prize1').value) || 0, prize2: Number($('#em-prize2').value) || 0, prize3: Number($('#em-prize3').value) || 0, prize4: Number($('#em-prize4').value) || 0, prize5: Number($('#em-prize5').value) || 0, roomId: $('#em-roomid').value, roomPassword: $('#em-roompw').value }) });
+    closeModal(); await loadTournaments(); render();
+  } catch (e) { const el = $('#em-err'); if (el) el.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 };
 window.publishResult = async () => {
   try {
