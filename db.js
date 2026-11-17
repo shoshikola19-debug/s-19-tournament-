@@ -24,6 +24,11 @@ CREATE TABLE IF NOT EXISTS profiles (
   password_hash TEXT,
   password_salt TEXT,
   last_spin_date TEXT,
+  br_passes INTEGER NOT NULL DEFAULT 0,
+  cs_passes INTEGER NOT NULL DEFAULT 0,
+  lw_passes INTEGER NOT NULL DEFAULT 0,
+  all_passes INTEGER NOT NULL DEFAULT 0,
+  last_spin_at INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS tournaments (
@@ -58,6 +63,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   slot_number INTEGER NOT NULL,
   player_name TEXT NOT NULL,
   squad_names TEXT NOT NULL DEFAULT '',
+  used_pass TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'pending',
   created_at TEXT NOT NULL,
   UNIQUE (tournament_id, slot_number)
@@ -146,6 +152,13 @@ async function init() {
     }
     // Migration: profile avatar (data URL, downscaled client-side).
     try { await pgPool.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar TEXT NOT NULL DEFAULT ''`); } catch (e) {}
+    // Migration: daily spin passes (free match passes won on the wheel).
+    for (const c of ['br_passes', 'cs_passes', 'lw_passes', 'all_passes']) {
+      try { await pgPool.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS ${c} INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
+    }
+    try { await pgPool.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_spin_at BIGINT NOT NULL DEFAULT 0`); } catch (e) {}
+    // Migration: free pass used on a booking.
+    try { await pgPool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS used_pass TEXT NOT NULL DEFAULT ''`); } catch (e) {}
     engine = 'postgres';
     return engine;
   }
@@ -162,6 +175,13 @@ async function init() {
   }
   // Migration: profile avatar (data URL, downscaled client-side).
   try { sqliteDb.exec(`ALTER TABLE profiles ADD COLUMN avatar TEXT NOT NULL DEFAULT ''`); } catch (e) {}
+  // Migration: daily spin passes (free match passes won on the wheel).
+  for (const c of ['br_passes', 'cs_passes', 'lw_passes', 'all_passes']) {
+    try { sqliteDb.exec(`ALTER TABLE profiles ADD COLUMN ${c} INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
+  }
+  try { sqliteDb.exec(`ALTER TABLE profiles ADD COLUMN last_spin_at INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
+  // Migration: free pass used on a booking.
+  try { sqliteDb.exec(`ALTER TABLE bookings ADD COLUMN used_pass TEXT NOT NULL DEFAULT ''`); } catch (e) {}
   engine = 'sqlite';
   return engine;
 }
