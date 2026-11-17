@@ -28,9 +28,13 @@
     window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
   }
   let deferredPrompt = null;
-  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; window.__s19Install = e; const b = document.getElementById('dl-btn'); if (b) b.style.display = ''; });
-  // Once installed, the Download button never shows again on this phone.
-  window.addEventListener('appinstalled', () => { window.__s19AppInstalled = true; const b = document.getElementById('dl-btn'); if (b) b.style.display = 'none'; });
+  // The Download button is always shown on the landing page; the prompt is
+  // only used to trigger the install box when the browser offers one.
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; window.__s19Install = e; });
+  // Once installed, remember it — but never hide the Download button again:
+  // without the prompt the button is the only way to tell the player to
+  // uninstall the old app first and install again.
+  window.addEventListener('appinstalled', () => { window.__s19AppInstalled = true; });
 </script>
 </body>
 </html>
