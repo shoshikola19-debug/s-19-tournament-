@@ -142,6 +142,8 @@ function publicTournament(t, bookings, results, reveal) {
     mode: t.mode, matchType: t.match_type, map: t.map, pov: t.pov,
     matchDate: t.match_date, matchTime: t.match_time, totalSlots: t.total_slots,
     entryFee: t.entry_fee, prizePool: t.prize_pool, perKillPrize: t.per_kill_prize,
+    prize1: t.prize1 || 0, prize2: t.prize2 || 0, prize3: t.prize3 || 0,
+    prize4: t.prize4 || 0, prize5: t.prize5 || 0,
     perKillPoints: t.per_kill_points, status: t.status,
     hasRoom: !!(t.room_id && t.room_password),
     roomId: reveal ? t.room_id : '', roomPassword: reveal ? t.room_password : '',
@@ -231,7 +233,7 @@ function safeProfile(p) {
   if (!p) return null;
   return {
     id: p.id, accountId: p.account_id, username: p.username, email: p.email,
-    phone: p.phone, ign: p.ign, uid: p.uid,
+    phone: p.phone, ign: p.ign, uid: p.uid, avatar: p.avatar || '',
     isAdmin: p.email === OWNER_EMAIL,
     spunToday: p.last_spin_date === dhakaDateStr(),
   };
@@ -253,6 +255,17 @@ app.post('/api/profile', auth, async (req, res) => {
   res.json({ ok: true, profile: safeProfile(p) });
 });
 
+// Change profile avatar — client sends a downscaled JPEG data URL (<= 200 KB).
+app.post('/api/profile/avatar', auth, async (req, res) => {
+  const { avatar } = req.body || {};
+  if (typeof avatar !== 'string' || !avatar.startsWith('data:image/') || avatar.length > 200000) {
+    return res.status(400).json({ ok: false, error: 'Invalid avatar image' });
+  }
+  await db.run('UPDATE profiles SET avatar = ? WHERE id = ?', [avatar, req.profileId]);
+  const p = await db.get('SELECT * FROM profiles WHERE id = ?', [req.profileId]);
+  res.json({ ok: true, profile: safeProfile(p) });
+});
+
 // ---- tournaments ----
 app.get('/api/tournaments', async (req, res) => {
   res.json({ ok: true, tournaments: await loadTournaments(false) });
@@ -270,10 +283,13 @@ app.post('/api/tournaments', adminAuth, async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Title: must be 160 characters or fewer' });
     }
     const id = await db.insert(
-      'INSERT INTO tournaments (title, category, subcategory, mode, match_type, map, pov, match_date, match_time, total_slots, entry_fee, prize_pool, per_kill_prize, per_kill_points, room_id, room_password, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      'INSERT INTO tournaments (title, category, subcategory, mode, match_type, map, pov, match_date, match_time, total_slots, entry_fee, prize_pool, prize1, prize2, prize3, prize4, prize5, per_kill_prize, per_kill_points, room_id, room_password, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       [b.title, b.category, b.subcategory, b.mode || 'solo', b.matchType || 'battle_royale',
        b.map || 'Bermuda', b.pov || 'TPP', b.matchDate, b.matchTime, slots,
-       b.entryFee || 0, b.prizePool || 0, b.perKillPrize || 0, b.perKillPoints || 0,
+       b.entryFee || 0, b.prizePool || 0,
+       Number(b.prize1) || 0, Number(b.prize2) || 0, Number(b.prize3) || 0,
+       Number(b.prize4) || 0, Number(b.prize5) || 0,
+       b.perKillPrize || 0, b.perKillPoints || 0,
        b.roomId || '', b.roomPassword || '', 'upcoming']);
     res.json({ ok: true, id });
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
@@ -286,11 +302,13 @@ app.put('/api/tournaments/:id', adminAuth, async (req, res) => {
     if (!t) return res.status(404).json({ ok: false, error: 'Match not found' });
     const slots = fixedSlots(b.category || t.category, b.subcategory || t.subcategory);
     await db.run(
-      'UPDATE tournaments SET title=?, category=?, subcategory=?, mode=?, match_type=?, map=?, pov=?, match_date=?, match_time=?, total_slots=?, entry_fee=?, prize_pool=?, per_kill_prize=?, per_kill_points=?, room_id=?, room_password=? WHERE id=?',
+      'UPDATE tournaments SET title=?, category=?, subcategory=?, mode=?, match_type=?, map=?, pov=?, match_date=?, match_time=?, total_slots=?, entry_fee=?, prize_pool=?, prize1=?, prize2=?, prize3=?, prize4=?, prize5=?, per_kill_prize=?, per_kill_points=?, room_id=?, room_password=? WHERE id=?',
       [b.title ?? t.title, b.category ?? t.category, b.subcategory ?? t.subcategory,
        b.mode ?? t.mode, b.matchType ?? t.match_type, b.map ?? t.map, b.pov ?? t.pov,
        b.matchDate ?? t.match_date, b.matchTime ?? t.match_time, slots ?? t.total_slots,
        b.entryFee ?? t.entry_fee, b.prizePool ?? t.prize_pool,
+       b.prize1 ?? t.prize1, b.prize2 ?? t.prize2, b.prize3 ?? t.prize3,
+       b.prize4 ?? t.prize4, b.prize5 ?? t.prize5,
        b.perKillPrize ?? t.per_kill_prize, b.perKillPoints ?? t.per_kill_points,
        b.roomId ?? t.room_id, b.roomPassword ?? t.room_password, t.id]);
     res.json({ ok: true });
@@ -482,8 +500,13 @@ app.post('/api/results', adminAuth, async (req, res) => {
     const place = Number(placement) || 0;
     const k = Number(kills) || 0;
     let prize = req.body.prize != null ? Number(req.body.prize) : 0;
-    if (req.body.prize == null && (t.category === 'br' && (t.subcategory === 'Solo' || t.subcategory === 'Duo'))) {
-      prize = (BR_SPLIT[place] || 0) + k * t.per_kill_prize;
+    if (req.body.prize == null) {
+      // Admin-set rank prize wins; BR Solo/Duo falls back to the 90/70/40/30/20 split.
+      const rankPrize = [0, t.prize1, t.prize2, t.prize3, t.prize4, t.prize5][place] || 0;
+      if (rankPrize > 0) prize = rankPrize + k * t.per_kill_prize;
+      else if (t.category === 'br' && (t.subcategory === 'Solo' || t.subcategory === 'Duo')) {
+        prize = (BR_SPLIT[place] || 0) + k * t.per_kill_prize;
+      }
     }
     const placePoints = place === 1 ? 10 : place === 2 ? 8 : place === 3 ? 6 : place === 4 ? 4 : place === 5 ? 2 : 0;
     const points = placePoints + k * t.per_kill_points;
