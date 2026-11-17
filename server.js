@@ -1071,8 +1071,10 @@ app.get('/api/payment-info', async (req, res) => {
 app.put('/api/payment-info', adminAuth, async (req, res) => {
   const b = req.body || {};
   for (const [k, v] of Object.entries({ bkash: b.bkashNumber, nagad: b.nagadNumber, rocket: b.rocketNumber, groupLink: b.groupLink })) {
-    if (v !== undefined) {
-      await db.run('INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [k, v || '']);
+    // Empty / missing field = leave the saved number alone, never wipe it.
+    // Only a non-empty value changes what's stored.
+    if (typeof v === 'string' && v.trim() !== '') {
+      await db.run('INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [k, v.trim()]);
     }
   }
   res.json({ ok: true });
