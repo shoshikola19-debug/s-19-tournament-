@@ -119,7 +119,31 @@ function startBanner() {
   bannerTimer = setInterval(() => { const n = $$('.car-slide').length || 2; bannerGo((bannerIdx + 1) % n); }, 4000);
 }
 function stopBanner() { clearInterval(bannerTimer); }
-window.goCategory = (c) => { category = c; subcategory = SUBS[c][0]; render(); };
+function isTeamMatch(m) {
+  if (!m) return false;
+  if (m.category === 'cs' && (m.subcategory === '4v4' || m.subcategory === 'Headshot Only')) return true;
+  if (m.category === 'lw' && m.subcategory === '2v2') return true;
+  if (m.category === 'br' && (m.subcategory === 'Duo' || m.subcategory === 'Esports PRO')) return true;
+  return false;
+}
+function teamSizeOf(m) {
+  if (!m) return 1;
+  if (m.category === 'cs' && (m.subcategory === '4v4' || m.subcategory === 'Headshot Only')) return 4;
+  if (m.category === 'br' && m.subcategory === 'Esports PRO') return 4;
+  if (m.category === 'lw' && m.subcategory === '2v2') return 2;
+  if (m.category === 'br' && m.subcategory === 'Duo') return 2;
+  return 1;
+}
+function squadList(b) {
+  try { const a = JSON.parse(b.squad_names || '[]'); return Array.isArray(a) ? a : []; }
+  catch (e) { return []; }
+}
+// Category drill-down: home -> category page (sub cards) -> match list.
+window.openCategory = (c) => { category = c; view = 'cat'; render(); };
+window.goCategory = window.openCategory; // banner + older callers
+window.openSub = (c, s) => { category = c; subcategory = s; view = 'list'; render(); };
+window.backToHome = () => { view = 'play'; render(); };
+window.backToCategory = () => { view = 'cat'; render(); };
 
 // ---------- landing ----------
 function landingHTML() {
@@ -326,7 +350,7 @@ function topbarHTML() {
   <span class="chip">৳${wallet ? wallet.depositBalance + wallet.winningBalance : 0}</span></div>`;
 }
 function bottomnavHTML() {
-  const items = [['play', '🎮', 'Play'], ['mymatches', '📋', 'My Matches'], ['results', '🏆', 'Results'], ['wallet', '👛', 'Wallet'], ['profile', '👤', 'Profile']];
+  const items = [['wallet', '💎', 'Diamond Topup'], ['results', '📊', 'Results'], ['play', '🎮', 'Play'], ['mymatches', '🏆', 'My Matches'], ['profile', '👤', 'Profile']];
   return `<div class="bottomnav">${items.map(([v, ic, lb]) => `<button class="${view === v ? 'on' : ''}" onclick="view='${v}';render()"><span class="ic">${ic}</span>${lb}</button>`).join('')}</div><button class="chat-fab" onclick="openSupport()" aria-label="Customer Support">💬</button>`;
 }
 function matchCard(m) {
@@ -361,10 +385,9 @@ function matchCard(m) {
   </div>`;
 }
 function playHTML() {
-  const list = tournaments.filter((m) => m.category === category && m.subcategory === subcategory);
   return `${topbarHTML()}<div class="wrap">
   <div class="banner-carousel">
-    <div class="car-slide on" onclick="goCategory('br')">
+    <div class="car-slide on" onclick="openCategory('br')">
       <img class="car-logo" src="/logo.webp" onerror="this.src='/icon-512.png'">
       <div><b>S_19 TOURNAMENT</b><div class="car-sub">PLAY WIN ENJOY — Daily BR • CS • Lone Wolf matches. Win real Taka prizes!</div></div>
     </div>
@@ -378,21 +401,53 @@ function playHTML() {
     </div>
     <div class="car-dots"><button class="car-dot on" onclick="bannerGo(0)" aria-label="Slide 1"></button><button class="car-dot" onclick="bannerGo(1)" aria-label="Slide 2"></button><button class="car-dot" onclick="bannerGo(2)" aria-label="Slide 3"></button></div>
   </div>
-  <div class="card center help-card" style="background:linear-gradient(135deg,#2a0d0d,#161616)">📢 <b>Need any Help? Customer Support</b><br><span class="muted">Support is available 24/7 for any match problem.</span><button class="btn" style="margin-top:10px" onclick="openSupport()">📞 Contact Support</button></div>
+  <div class="help-row">
+    <span class="help-ic">🎧<i class="help-dot"></i></span>
+    <span class="help-txt"><b>Need any Help?</b><span>● Customer Support</span></span>
+    <button class="help-contact" onclick="openSupport()">Contact ›</button>
+  </div>
   <div class="cat-cards">
-    ${[['br', 'BR MATCH', 'BR MATCHES', 'Solo • Duo • Esports PRO'], ['cs', 'CS MATCH', 'CS MATCHES', '4v4 • 1v1 • Headshot Only'], ['lw', 'LONE WOLF MATCH', 'LW MATCHES', '1v1 • 2v2 • Lose To Win • Headshot Only']].map(([c, badge, lb, sub]) => { const n = tournaments.filter((m) => m.category === c && m.status === 'upcoming').length; return `<button class="cat-card cat-${c}" onclick="goCategory('${c}')">
-      <span class="cat-glow"></span>
-      <img class="cat-logo" src="/logo.webp" alt="" onerror="this.style.display='none'">
-      <span class="cat-body"><span class="cat-badge">${badge}</span><b class="cat-title">${lb}</b><span class="cat-sub">${sub}</span><span class="live-badge">● ${n} Live</span></span>
+    ${[['br', 'BR MATCH', 'BR MATCHES', 'Solo • Duo • Esports PRO'], ['cs', 'CS MATCH', 'CS MATCHES', '4v4 • 1v1 • Headshot Only'], ['lw', 'LONE WOLF MATCH', 'LW MATCHES', '1v1 • 2v2 • Lose To Win • Headshot Only']].map(([c, shield, lb, sub]) => { const n = tournaments.filter((m) => m.category === c && m.status === 'upcoming').length; return `<button class="cat-card cat-${c}" onclick="openCategory('${c}')">
+      <span class="shield-tile"><img class="shield-logo" src="/logo.webp" alt="" onerror="this.style.display='none'"><span class="shield-label">${shield}</span></span>
+      <span class="cat-body"><b class="cat-title">${lb}</b><span class="cat-sub">${sub}</span><span class="live-badge">● ${n} Matches Live</span></span>
       <span class="cat-arrow">›</span>
     </button>`; }).join('')}
   </div>
+  </div>${bottomnavHTML()}`;
+}
+// Category page: big sub-category cards (BR Solo / Duo / Esports PRO …).
+// Tap one to open its match list. Display names + shield labels match the reference.
+const SUB_META = {
+  br: { title: 'BR MATCHES', labels: { Solo: 'BR Solo', Duo: 'BR Duo', 'Esports PRO': 'BR E-Sports PRO League' }, shield: { Solo: 'BR SOLO', Duo: 'BR DUO', 'Esports PRO': 'BR E-SPORTS PRO LEAGUE' } },
+  cs: { title: 'CS MATCHES', labels: { '4v4': 'Clash Squad', '1v1': 'CS 1v1', 'Headshot Only': 'CS Headshot Only' }, shield: { '4v4': 'CS 4 VS 4', '1v1': 'CS 1 VS 1', 'Headshot Only': 'CS HEADSHOT' } },
+  lw: { title: 'LW MATCHES', labels: { '1v1': 'Lone Wolf 1V1', '2v2': 'Lone Wolf 2V2', 'Lose To Win': 'Lose To Win', 'Headshot Only': 'LW Headshot Only' }, shield: { '1v1': 'LONE WOLF 1 VS 1', '2v2': 'LONE WOLF 2 VS 2', 'Lose To Win': 'LOSE TO WIN', 'Headshot Only': 'LONE WOLF HEADSHOT' } },
+};
+function categoryHTML() {
+  const meta = SUB_META[category];
+  const subs = SUBS[category].map((s, i) => {
+    const live = tournaments.filter((m) => m.category === category && m.subcategory === s && m.status === 'upcoming').length;
+    return `<button class="cat-card sub-card sub-${category} anim-in" style="animation-delay:${i * 70}ms" onclick="openSub('${category}','${esc(s)}')">
+      <span class="shield-tile"><img class="shield-logo" src="/logo.webp" alt="" onerror="this.style.display='none'"><span class="shield-label">${meta.shield[s]}</span></span>
+      <span class="cat-body"><b class="cat-title">${esc(meta.labels[s])}</b><span class="live-badge">● ${live} Matches Live</span></span>
+      <span class="cat-arrow">›</span>
+    </button>`;
+  }).join('');
+  return `${topbarHTML()}<div class="wrap">
+  <div class="page-head"><button class="back-arrow" onclick="backToHome()" aria-label="Back">←</button><h2>${meta.title}</h2><span class="head-spacer"></span></div>
+  <div class="sub-cards">${subs}</div>
+  </div>${bottomnavHTML()}`;
+}
+// Match list for one sub-category (reached from its category page).
+function listHTML() {
+  const list = tournaments.filter((m) => m.category === category && m.subcategory === subcategory);
+  return `${topbarHTML()}<div class="wrap">
+  <div class="page-head"><button class="back-arrow" onclick="backToCategory()" aria-label="Back">←</button><h2>${SUB_META[category].labels[subcategory] || esc(subcategory)}</h2><span class="head-spacer"></span></div>
   <div class="tabs">
-    <button class="${category === 'br' ? 'on' : ''}" onclick="category='br';subcategory='Solo';render()">BR MATCHES (${tournaments.filter((m) => m.category === 'br').length})</button>
-    <button class="${category === 'cs' ? 'on' : ''}" onclick="category='cs';subcategory='4v4';render()">CS MATCHES (${tournaments.filter((m) => m.category === 'cs').length})</button>
-    <button class="${category === 'lw' ? 'on' : ''}" onclick="category='lw';subcategory='1v1';render()">LW MATCHES (${tournaments.filter((m) => m.category === 'lw').length})</button>
+    <button class="${category === 'br' ? 'on' : ''}" onclick="openCategory('br')">BR MATCHES (${tournaments.filter((m) => m.category === 'br').length})</button>
+    <button class="${category === 'cs' ? 'on' : ''}" onclick="openCategory('cs')">CS MATCHES (${tournaments.filter((m) => m.category === 'cs').length})</button>
+    <button class="${category === 'lw' ? 'on' : ''}" onclick="openCategory('lw')">LW MATCHES (${tournaments.filter((m) => m.category === 'lw').length})</button>
   </div>
-  <div class="subtabs">${SUBS[category].map((s) => `<button class="${subcategory === s ? 'on' : ''}" onclick="subcategory='${s}';render()">${s}</button>`).join('')}</div>
+  <div class="subtabs">${SUBS[category].map((s) => `<button class="${subcategory === s ? 'on' : ''}" onclick="openSub('${category}','${esc(s)}')">${s}</button>`).join('')}</div>
   <button class="btn-ghost" style="margin-top:12px" onclick="openTutorial()">▶ Tutorial — How to Join</button>
   ${list.length ? list.map((m, i) => `<div class="anim-in" style="animation-delay:${i * 70}ms">${matchCard(m)}</div>`).join('') : '<div class="card center muted">No matches in this list yet.</div>'}
   </div>${bottomnavHTML()}`;
@@ -460,21 +515,36 @@ window.selectSlot = (n, el) => {
 };
 window.proceedJoin = () => {
   if (!selectedSlot) { $('#slot-err').innerHTML = '<div class="err">Pick a slot first</div>'; return; }
+  const teamSize = teamSizeOf(selectedMatch);
+  const squadFields = isTeamMatch(selectedMatch)
+    ? `<div class="squad-box"><b>👥 Join with Squad (optional)</b>
+      <p class="muted">Playing as a squad? Add your teammates' in-game names — they will be saved with your booking.</p>
+      ${Array.from({ length: teamSize - 1 }, (_, i) => `<div class="field"><label>Teammate ${i + 2} in-game name (optional)</label><input id="f-squad-${i + 1}" placeholder="Teammate ${i + 2} name"></div>`).join('')}
+    </div>` : '';
   openModal(`<h2>Enter Player Name</h2>
   <div class="step-dots"><span class="step-dot done">1</span><span class="step-dot on">2</span><span class="step-dot">3</span><span class="step-dot">4</span></div>
   <p class="muted">Join only with your own registered in-game name. Only the registered player may play — inviting an unregistered player means a permanent ban.</p>
   <div class="field"><label>Player Name (exact in-game name)</label><input id="f-playername" value="${esc(profile ? profile.ign : '')}"></div>
+  ${squadFields}
   <label style="display:flex;gap:8px;margin-top:14px;font-size:14px"><input type="checkbox" id="f-agree" style="width:auto"> I have read the match rules</label>
   <div id="join-err"></div>
   <button class="btn" style="margin-top:16px" onclick="confirmJoin()">I Agree and Confirm</button>`);
 };
 window.confirmJoin = async () => {
   if (!$('#f-agree').checked) { $('#join-err').innerHTML = '<div class="err">Tick the rules box first</div>'; return; }
+  const squadNames = [];
+  if (isTeamMatch(selectedMatch)) {
+    for (let i = 1; i < teamSizeOf(selectedMatch); i++) {
+      const el = $('#f-squad-' + i);
+      if (el && el.value.trim()) squadNames.push(el.value.trim());
+    }
+  }
   try {
-    await api(`/api/tournaments/${selectedMatch.id}/book`, { method: 'POST', body: JSON.stringify({ slotNumber: selectedSlot, playerName: $('#f-playername').value.trim() }) });
+    await api(`/api/tournaments/${selectedMatch.id}/book`, { method: 'POST', body: JSON.stringify({ slotNumber: selectedSlot, playerName: $('#f-playername').value.trim(), squadNames }) });
     await loadTournaments(); await loadMe();
     openModal(`<h2>✅ Join Group</h2>
     <p style="line-height:1.7;margin-top:10px">You booked <b>slot ${selectedSlot}</b> in <b>${esc(selectedMatch.title)}</b>. Your booking is pending owner approval.</p>
+    ${squadNames.length ? `<p style="line-height:1.7;margin-top:8px">👥 <b>Your squad:</b> ${esc(squadNames.join(', '))}</p>` : ''}
     <div class="warn">⚠ You will get the custom ID password 2 to 4 minutes before the match starts in the Room Details Button. Stay in the Join Group screen and wait.</div>
     <button class="btn" style="margin-top:14px" onclick="closeModal();view='mymatches';render()">Go to My Matches</button>`);
   } catch (e) { $('#join-err').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
@@ -485,10 +555,11 @@ function myMatchesHTML() {
   const mine = [];
   tournaments.forEach((m) => m.bookings.filter((b) => profile && b.profile_id === profile.id).forEach((b) => mine.push({ m, b })));
   return `${topbarHTML()}<div class="wrap"><h2 style="margin-top:14px">My Matches</h2>
-  ${mine.length ? mine.map(({ m, b }) => `<div class="card"><b>${esc(m.title)}</b> <span class="badge">#${m.id}</span>
+  ${mine.length ? mine.map(({ m, b }) => { const sq = squadList(b); return `<div class="card"><b>${esc(m.title)}</b> <span class="badge">#${m.id}</span>
     <div class="muted" style="margin-top:6px">${esc(m.matchDate)} ${esc(m.matchTime)} · Slot ${b.slot_number} · ${esc(b.status)}</div>
+    ${sq.length ? `<div class="muted" style="margin-top:4px">👥 Squad: ${esc(sq.join(', '))}</div>` : ''}
     <div class="row3" style="grid-template-columns:1fr 1fr"><button class="btn-ghost" onclick="openRoom(${m.id})">🚪 Room Details</button>
-    ${b.status === 'pending' ? `<button class="btn-ghost" onclick="cancelBooking(${b.id})">Cancel</button>` : ''}</div></div>`).join('')
+    ${b.status === 'pending' ? `<button class="btn-ghost" onclick="cancelBooking(${b.id})">Cancel</button>` : ''}</div></div>`; }).join('')
     : '<div class="card center muted">You have not joined any match yet.</div>'}
   </div>${bottomnavHTML()}`;
 }
@@ -524,7 +595,8 @@ async function loadLeaderboard() {
 // ---------- wallet ----------
 function walletHTML() {
   const tx = wallet ? wallet.transactions : [];
-  return `${topbarHTML()}<div class="wrap"><h2 style="margin-top:14px">Wallet</h2>
+  return `${topbarHTML()}<div class="wrap"><h2 style="margin-top:14px">💎 Diamond Topup</h2>
+  <p class="muted">Wallet — Deposit &amp; Winning Balance. Add money to join matches, withdraw your winnings.</p>
   <div class="card"><div class="kv"><span>💰 Deposit Balance</span><b>৳${wallet ? wallet.depositBalance : 0}</b></div>
   <div class="kv"><span>🏆 Winning Balance</span><b>৳${wallet ? wallet.winningBalance : 0}</b></div>
   <div class="kv"><span>Total topped up</span><b>৳${wallet ? wallet.topupTotal : 0}</b></div></div>
@@ -657,7 +729,7 @@ async function adminHTML() {
       <button class="btn-ghost btn-sm" onclick="editMatch(${m.id})">Edit</button>
       <button class="btn-ghost btn-sm" onclick="deleteMatch(${m.id})">Delete</button>
     </div>
-    ${m.bookings.filter((b) => b.status === 'pending').map((b) => `<div class="kv"><span>Slot ${b.slot_number} · ${esc(b.player_name)} (pending)</span><span><button class="btn-ghost btn-sm" onclick="reviewBooking(${b.id},true)">Approve</button> <button class="btn-ghost btn-sm" onclick="reviewBooking(${b.id},false)">Reject</button></span></div>`).join('')}
+    ${m.bookings.filter((b) => b.status === 'pending').map((b) => { const sq = squadList(b); return `<div class="kv"><span>Slot ${b.slot_number} · ${esc(b.player_name)} (pending)${sq.length ? ' · 👥 ' + esc(sq.join(', ')) : ''}</span><span><button class="btn-ghost btn-sm" onclick="reviewBooking(${b.id},true)">Approve</button> <button class="btn-ghost btn-sm" onclick="reviewBooking(${b.id},false)">Reject</button></span></div>`; }).join('')}
   </div>`).join('')}
   <div class="card"><h3>Publish result</h3>
     <div class="field"><label>Match</label><select id="rs-match">${adminTournaments.map((m) => `<option value="${m.id}">${esc(m.title)} — ${esc(m.matchDate)}</option>`).join('')}</select></div>
@@ -737,6 +809,8 @@ function render() {
   if (view === 'landing') app.innerHTML = landingHTML();
   else if (view === 'login' || view === 'register') app.innerHTML = authHTML();
   else if (view === 'play') app.innerHTML = playHTML();
+  else if (view === 'cat') app.innerHTML = categoryHTML();
+  else if (view === 'list') app.innerHTML = listHTML();
   else if (view === 'mymatches') app.innerHTML = myMatchesHTML();
   else if (view === 'results') { app.innerHTML = resultsHTML(); loadLeaderboard(); }
   else if (view === 'wallet') app.innerHTML = walletHTML();
