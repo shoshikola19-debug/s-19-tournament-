@@ -181,13 +181,70 @@ function req(method, p, body, token) {
     const trAgain = await req('POST', '/api/transfer-balance', { amount: 161 }, ownerToken);
     assert.strictEqual(trAgain.status, 400, 'transfer above remaining winning rejected');
 
-    // withdraw below minimum + from deposit refused; spin works once
+    // withdraw below minimum + from deposit refused; daily spin wheel
     const wdBad = await req('POST', '/api/withdraw', { amount: 50, method: 'bkash', accountNumber: '01906502081' }, ownerToken);
     assert.strictEqual(wdBad.status, 400, 'withdraw below 100 refused');
-    const spin = await req('POST', '/api/spin', {}, ownerToken);
-    assert.strictEqual(spin.status, 200, 'daily spin');
-    const spin2 = await req('POST', '/api/spin', {}, ownerToken);
+    // daily spin wheel: state, one spin per day, won pass saved on profile
+    const spinState0 = await req('GET', '/api/daily-spin', null, ownerToken);
+    assert.strictEqual(spinState0.status, 200, 'daily-spin state');
+    assert.strictEqual(spinState0.data.canSpin, true, 'can spin first time');
+    assert.deepStrictEqual(spinState0.data.passes, { br: 0, cs: 0, lw: 0, all: 0 }, 'no passes yet');
+    assert.ok(spinState0.data.nextSpinAt > Date.now(), 'next spin is in the future');
+    const spin = await req('POST', '/api/daily-spin', {}, ownerToken);
+    assert.strictEqual(spin.status, 200, 'daily spin: ' + JSON.stringify(spin.data));
+    assert.ok(Number.isInteger(spin.data.segment) && spin.data.segment >= 0 && spin.data.segment < 8, 'segment 0-7');
+    assert.ok(['br', 'cs', 'lw', 'all', 'none'].includes(spin.data.prize), 'prize is a segment type');
+    assert.strictEqual(spin.data.canSpin, false, 'no second spin today');
+    const meSpin = await req('GET', '/api/me', null, ownerToken);
+    const totalPasses = Object.values(meSpin.data.profile.passes).reduce((a, b) => a + b, 0);
+    if (spin.data.prize === 'none') {
+      assert.strictEqual(totalPasses, 0, 'no prize = no pass');
+    } else {
+      assert.strictEqual(totalPasses, 1, 'won exactly one pass');
+      assert.strictEqual(meSpin.data.profile.passes[spin.data.prize], 1, 'pass is for the won category');
+    }
+    const spin2 = await req('POST', '/api/daily-spin', {}, ownerToken);
     assert.strictEqual(spin2.status, 400, 'second spin same day refused');
+    const spinState1 = await req('GET', '/api/daily-spin', null, ownerToken);
+    assert.strictEqual(spinState1.data.canSpin, false, 'state says cannot spin again today');
+
+    // free pass join: BR pass -> fee 0 and pass spent; no pass -> rejected;
+    // normal join still charges; All pass works on any category; category
+    // pass is spent before an All pass; cancelling returns the pass
+    const setPasses = (br, cs, lw, all) => server.execSync(
+      `sqlite3 "${DB}" "UPDATE profiles SET br_passes=${br}, cs_passes=${cs}, lw_passes=${lw}, all_passes=${all} WHERE id=1"`);
+    const passesOf = async () => (await req('GET', '/api/me', null, ownerToken)).data.profile.passes;
+    setPasses(1, 0, 0, 0);
+    const bookPass = await req('POST', `/api/tournaments/${mk30.data.id}/book`, { slotNumber: 1, playerName: 'bijoy', usePass: true }, ownerToken);
+    assert.strictEqual(bookPass.status, 200, 'BR pass join: ' + JSON.stringify(bookPass.data));
+    assert.strictEqual(bookPass.data.usedPass, 'br', 'used the BR pass');
+    me = await req('GET', '/api/me', null, ownerToken);
+    assert.strictEqual(me.data.wallet.depositBalance, 280, 'pass join charges no fee');
+    assert.deepStrictEqual(me.data.profile.passes, { br: 0, cs: 0, lw: 0, all: 0 }, 'BR pass spent');
+    const bookNoPass = await req('POST', `/api/tournaments/${mkDef.data.id}/book`, { slotNumber: 1, playerName: 'bijoy', usePass: true }, ownerToken);
+    assert.strictEqual(bookNoPass.status, 400, 'usePass with no pass rejected');
+    const bookPaid = await req('POST', `/api/tournaments/${mkDef.data.id}/book`, { slotNumber: 1, playerName: 'bijoy' }, ownerToken);
+    assert.strictEqual(bookPaid.status, 200, 'normal join without pass: ' + JSON.stringify(bookPaid.data));
+    me = await req('GET', '/api/me', null, ownerToken);
+    assert.strictEqual(me.data.wallet.depositBalance, 260, 'normal join still charges fee 20');
+    setPasses(0, 0, 0, 1);
+    const bookAll = await req('POST', `/api/tournaments/${mk2.data.id}/book`, { slotNumber: 1, playerName: 'bijoy', usePass: true }, ownerToken);
+    assert.strictEqual(bookAll.status, 200, 'All pass join on CS match: ' + JSON.stringify(bookAll.data));
+    assert.strictEqual(bookAll.data.usedPass, 'all', 'All pass used on a CS match');
+    assert.deepStrictEqual(await passesOf(), { br: 0, cs: 0, lw: 0, all: 0 }, 'All pass spent');
+    const cancelPass = await req('POST', `/api/bookings/${bookAll.data.id}/cancel`, {}, ownerToken);
+    assert.strictEqual(cancelPass.status, 200, 'cancel pass booking');
+    assert.deepStrictEqual(await passesOf(), { br: 0, cs: 0, lw: 0, all: 1 }, 'pass returned on cancel');
+    setPasses(1, 0, 0, 1);
+    // Fresh BR match: mkDef already has the owner's paid booking above, and
+    // one profile can only hold one slot per match, so the category-first
+    // check needs its own match.
+    const mkCat = await req('POST', '/api/tournaments', { title: 'BR Solo — Cat First', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: '2026-11-20', matchTime: '23:00', prizePool: 800, entryFee: 20, totalSlots: 48, perKillPrize: 10 }, ownerToken);
+    assert.strictEqual(mkCat.status, 200, 'cat-first match created: ' + JSON.stringify(mkCat.data));
+    const bookCatFirst = await req('POST', `/api/tournaments/${mkCat.data.id}/book`, { slotNumber: 1, playerName: 'bijoy', usePass: true }, ownerToken);
+    assert.strictEqual(bookCatFirst.status, 200, 'category+all pass join: ' + JSON.stringify(bookCatFirst.data));
+    assert.strictEqual(bookCatFirst.data.usedPass, 'br', 'category pass spent before All pass');
+    assert.deepStrictEqual(await passesOf(), { br: 0, cs: 0, lw: 0, all: 1 }, 'All pass kept');
 
     // forgot password (code-based): request -> wrong code rejected -> 5 wrong
     // attempts kill the code -> fresh code -> expired rejected -> correct code
@@ -278,11 +335,12 @@ function req(method, p, body, token) {
     // team boxes, Match Full, tutorial, Remember Me, Forgot, results tabs,
     // support modal + animations must be present in served files
     const appJs = await (await fetch('http://127.0.0.1:3101/app.js')).text();
-    for (const s of ['banner-carousel', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'TOPUP BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'S_19 on Telegram', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'Join with Squad', 'squadNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled', 'ad-prize1', 'em-prize1', 'Match Prizes', '1st Prize', '2nd Prize', 'prize1', 'avatar-img', 'avatar-cam', 'uploadAvatar', 'copyS19Id', 'profile-tiles', 'profile-tile', 'menu-list', 'menu-row', 'BDT', 'Edit Profile', 'Daily Spin', 'All Rules', 'Leaderboard', 'wallet-hero', 'Available Balance', 'DEPOSITED', 'WINNING', 'Transfer Balance', 'openTransfer', 'transfer-balance', 'Transfer to Deposit', 'BKASH &amp; NAGAD', 'Proceed to Payment', '10 - 1000', 'minimum of 10 Taka', 'maximum of 1000', 'Transaction History', 'openTxHistory', 'How to add money?', 'openHowToAddMoney', 'How to join a match?', 'How to withdraw?', 'openHowToWithdraw', 'Nagad number not added yet', 'Nagad number will be added later', 'depPickGateway', 'depPickMethod', 'depCheck', 'depStep2', 'match-head', 'match-date', 'fmtDateTime', 'tile-ic', 'reg-row', 'join-btn', 'tutorial-pill', 'ad-slots', 'em-slots', 'Total Slots', 'adSlotsDefault', 'SLOT_DEFAULTS', 'Email / Username / Phone', 'Email, username or phone number', 'already exists', 'already taken', 'Send Code', 'Resend Code', 'Enter Reset Code', 'forgot-password/request', 'forgot-password/verify', 'Password Reset Requests', 'reset-requests', 'cancelReset', 'doForgotSend', 'doForgotVerify']) {
+    for (const s of ['banner-carousel', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'TOPUP BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'S_19 on Telegram', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'Join with Squad', 'squadNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled', 'ad-prize1', 'em-prize1', 'Match Prizes', '1st Prize', '2nd Prize', 'prize1', 'avatar-img', 'avatar-cam', 'uploadAvatar', 'copyS19Id', 'profile-tiles', 'profile-tile', 'menu-list', 'menu-row', 'BDT', 'Edit Profile', 'Daily Spin', 'All Rules', 'Leaderboard', 'wallet-hero', 'Available Balance', 'DEPOSITED', 'WINNING', 'Transfer Balance', 'openTransfer', 'transfer-balance', 'Transfer to Deposit', 'BKASH &amp; NAGAD', 'Proceed to Payment', '10 - 1000', 'minimum of 10 Taka', 'maximum of 1000', 'Transaction History', 'openTxHistory', 'How to add money?', 'openHowToAddMoney', 'How to join a match?', 'How to withdraw?', 'openHowToWithdraw', 'Nagad number not added yet', 'Nagad number will be added later', 'depPickGateway', 'depPickMethod', 'depCheck', 'depStep2', 'match-head', 'match-date', 'fmtDateTime', 'tile-ic', 'reg-row', 'join-btn', 'tutorial-pill', 'ad-slots', 'em-slots', 'Total Slots', 'adSlotsDefault', 'SLOT_DEFAULTS', 'Email / Username / Phone', 'Email, username or phone number', 'already exists', 'already taken', 'Send Code', 'Resend Code', 'Enter Reset Code', 'forgot-password/request', 'forgot-password/verify', 'Password Reset Requests', 'reset-requests', 'cancelReset', 'doForgotSend', 'doForgotVerify', 'topupHTML', 'topupSoon', 'Top-up coming soon', 'FREE FIRE TOPUP BD SERVER', 'INDONESIA SERVER', 'UID TOPUP', 'Level Up Pass', 'Weekly Lite', 'Weekly & Monthly', 'topup-grid', 'topup-card', 'topup-banner', 'TOPUP_PACKS_BD', 'TOPUP_PACKS_ID', 'daily-spin', 'spin-wheel', 'Spin Now', 'Next Spin in', 'Use free pass', 'SPIN_SEGMENTS', 'openSpin', 'doSpin', 'passForMatch', 'spin-counters', 'spin-head', 'spin-hub', 'spin-countdown', 'You won a free', 'Better luck tomorrow', 'spinState', 'usedPass']) {
       assert.ok(appJs.includes(s), 'app.js missing: ' + s);
     }
+    assert.ok(!appJs.includes('topup-order') && !appJs.includes('/api/topup'), 'topup is display-only: no order endpoint');
     const css = await (await fetch('http://127.0.0.1:3101/styles.css')).text();
-    for (const s of ['@keyframes pageIn', '@keyframes cardIn', 'splashPulse', 'splashSpin', '.spinner', '.chat-fab', '.banner-carousel', 'prefers-reduced-motion', '.shield-tile', '.shield-label', '.help-row', '.help-contact', '.page-head', '.squad-box', '.sub-card', '.avatar-img', '.avatar-cam', '.profile-tiles', '.profile-tile', '.menu-list', '.menu-row', '.edit-pill', '.id-pill', '.wallet-hero', '.wallet-tiles', '.wallet-tile', '.wallet-actions', '.wallet-btn', '.wallet-btn-blue', '.wallet-btn-green', '.wallet-btn-purple', '.addmoney-hero', '.addmoney-ic', '.dep-note', '.gw-pills', '.gw-pill', '.amt-box', '.btn-proceed', '.match-head', '.match-date', '.tile-ic', '.reg-row', '.join-btn', '.tutorial-pill']) {
+    for (const s of ['@keyframes pageIn', '@keyframes cardIn', 'splashPulse', 'splashSpin', '.spinner', '.chat-fab', '.banner-carousel', 'prefers-reduced-motion', '.shield-tile', '.shield-label', '.help-row', '.help-contact', '.page-head', '.squad-box', '.sub-card', '.avatar-img', '.avatar-cam', '.profile-tiles', '.profile-tile', '.menu-list', '.menu-row', '.edit-pill', '.id-pill', '.wallet-hero', '.wallet-tiles', '.wallet-tile', '.wallet-actions', '.wallet-btn', '.wallet-btn-blue', '.wallet-btn-green', '.wallet-btn-purple', '.addmoney-hero', '.addmoney-ic', '.dep-note', '.gw-pills', '.gw-pill', '.amt-box', '.btn-proceed', '.match-head', '.match-date', '.tile-ic', '.reg-row', '.join-btn', '.tutorial-pill', '.topup-banner', '.topup-grid', '.topup-card', '.topup-tile', '.topup-head', '.topup-badge', '.topup-sec', '.spin-wheel', '.spin-label', '.spin-pointer', '.spin-hub', '.spin-counters', '.spin-head', '.spin-countdown', '.spin-btn']) {
       assert.ok(css.includes(s), 'styles.css missing: ' + s);
     }
     const man = await fetch('http://127.0.0.1:3101/manifest.webmanifest');
