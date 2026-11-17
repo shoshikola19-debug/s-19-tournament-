@@ -100,7 +100,7 @@ async function api(path, opts = {}) {
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) },
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Request failed');
+  if (!res.ok) { const err = new Error(data.error || 'Request failed'); err.status = res.status; throw err; }
   return data;
 }
 function toast(msg) {
@@ -287,8 +287,8 @@ function authHTML() {
     ${isLogin ? `<div class="field"><label>Email / Username / Phone</label><input id="f-email" type="text" placeholder="Email, username or phone number"></div>`
     : `<div class="field"><label>Email</label><input id="f-email" type="email" placeholder="you@example.com"></div>`}
     ${isLogin ? '' : `<div class="field"><label>Phone (+88)</label><input id="f-phone" placeholder="+8801XXXXXXXXX"></div>`}
-    <div class="field"><label>Password</label><input id="f-password" type="password" placeholder="••••••••"></div>
-    ${isLogin ? '' : `<div class="field"><label>Confirm Password</label><input id="f-password2" type="password" placeholder="••••••••"></div>`}
+    <div class="field"><label>Password</label><div class="pw-wrap"><input id="f-password" type="password" placeholder="••••••••"><button type="button" class="pw-eye" onclick="togglePw('f-password',this)" aria-label="Show password">👁️</button></div></div>
+    ${isLogin ? '' : `<div class="field"><label>Confirm Password</label><div class="pw-wrap"><input id="f-password2" type="password" placeholder="••••••••"><button type="button" class="pw-eye" onclick="togglePw('f-password2',this)" aria-label="Show password">👁️</button></div></div>`}
     ${isLogin ? `<label class="remember"><input type="checkbox" id="f-remember" checked> Remember Me</label>` : `<label class="remember"><input type="checkbox" id="f-rules"> I agree to the tournament rules — <a href="#" onclick="showNotice(1);return false">read rules</a></label>`}
     <div id="auth-err"></div>
     <button class="btn" style="margin-top:16px" onclick="${isLogin ? 'doLogin()' : 'doRegister()'}">${isLogin ? 'Login' : 'Register'}</button>
@@ -299,6 +299,14 @@ function authHTML() {
     <p class="center"><a href="#" onclick="backHome();return false">← Back to home</a></p>
   </div></div>`;
 }
+// Show/hide a password field so the player can see exactly what they typed.
+window.togglePw = (id, btn) => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const show = el.type === 'password';
+  el.type = show ? 'text' : 'password';
+  if (btn) btn.textContent = show ? '🙈' : '👁️';
+};
 window.doLogin = async () => {
   try {
     const d = await api('/api/login', { method: 'POST', body: JSON.stringify({ emailOrUsername: $('#f-email').value.trim(), password: $('#f-password').value }) });
@@ -342,8 +350,8 @@ function openForgotStep2(note) {
   openModal(`<h2>Enter Reset Code</h2>
   <p class="muted">${esc(note)}</p>
   <div class="field"><label>6-digit code</label><input id="fp-code" type="text" inputmode="numeric" maxlength="6" placeholder="••••••"></div>
-  <div class="field"><label>New password (4+ characters)</label><input id="fp-pw" type="password" placeholder="••••••••"></div>
-  <div class="field"><label>Confirm new password</label><input id="fp-pw2" type="password" placeholder="••••••••"></div>
+  <div class="field"><label>New password (4+ characters)</label><div class="pw-wrap"><input id="fp-pw" type="password" placeholder="••••••••"><button type="button" class="pw-eye" onclick="togglePw('fp-pw',this)" aria-label="Show password">👁️</button></div></div>
+  <div class="field"><label>Confirm new password</label><div class="pw-wrap"><input id="fp-pw2" type="password" placeholder="••••••••"><button type="button" class="pw-eye" onclick="togglePw('fp-pw2',this)" aria-label="Show password">👁️</button></div></div>
   <div id="fp-err"></div>
   <button class="btn" style="margin-top:14px" onclick="doForgotVerify()">Reset Password</button>
   <button class="btn-ghost" style="margin-top:8px" id="fp-resend" onclick="doForgotResend()">Resend Code</button>`);
@@ -440,8 +448,15 @@ window.acceptNotice = (stay) => {
   if (!stay) { view = 'play'; render(); }
 };
 async function loadMe() {
-  try { const d = await api('/api/me'); profile = d.profile; wallet = d.wallet; }
-  catch (e) { token = ''; localStorage.removeItem('s19token'); sessionStorage.removeItem('s19token'); profile = null; }
+  try { const d = await api('/api/me'); profile = d.profile; wallet = d.wallet; return 'ok'; }
+  catch (e) {
+    profile = null;
+    // Only a real 401 (session dead) clears the saved login. A network
+    // failure — e.g. the free server still waking up — must NOT log the
+    // user out, or the app keeps asking for the password again and again.
+    if (e && e.status === 401) { token = ''; localStorage.removeItem('s19token'); sessionStorage.removeItem('s19token'); return 'unauthorized'; }
+    return 'network';
+  }
 }
 async function loadTournaments() {
   try { tournaments = (await api('/api/tournaments')).tournaments; } catch (e) { tournaments = []; }
@@ -1368,7 +1383,16 @@ setInterval(() => {
   document.title = appName() + ' — Play Win Enjoy';
   await loadTournaments();
   const hadToken = !!token;
-  if (token) { await loadMe(); if (profile) view = 'play'; }
+  if (token) {
+    // The free server can take a while to wake: a cold-start failure must
+    // NOT delete the saved login — retry a few times before giving up.
+    let meResult = await loadMe();
+    for (let i = 0; i < 3 && !profile && meResult !== 'unauthorized'; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      meResult = await loadMe();
+    }
+    if (profile) view = 'play';
+  }
   // Installed app: skip the landing/download page entirely —
   // splash -> login (logged out) or home (logged in). Browser links keep landing.
   if (view === 'landing' && isStandalone()) view = (token && profile) ? 'play' : 'login';
