@@ -209,7 +209,7 @@ function landingHTML() {
     <div class="tagline">PLAY WIN ENJOY</div>
     <p class="muted" style="margin-top:10px">${esc(t('hero'))}</p>
     <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap">
-      <button id="dl-btn" class="btn" ${(window.__s19Install && !window.__s19AppInstalled) ? '' : 'style="display:none"'} onclick="downloadApp()">⬇ ${esc(t('download'))}</button>
+      <button id="dl-btn" class="btn" onclick="downloadApp()">⬇ ${esc(t('download'))}</button>
       <button class="btn-ghost" onclick="goApp()">▶ ${esc(t('open'))}</button>
       ${token ? '' : `<button class="btn-ghost" onclick="goAuth('login')">🔑 ${esc(t('login'))}</button>
       <button class="btn" onclick="goAuth('register')">✍️ ${esc(t('signup'))}</button>`}
@@ -228,6 +228,7 @@ function landingHTML() {
     <div class="step"><div class="n">3</div><div><b>${esc(t('s3t'))}</b><p class="muted">${esc(t('s3'))}</p></div></div>
     <div class="step"><div class="n">4</div><div><b>${esc(t('s4t'))}</b><p class="muted">${esc(t('s4'))}</p></div></div>
   </div>
+  <p class="muted center" style="margin-top:10px">Already have the old app? Uninstall it first, then install again to get the latest version.</p>
   <h2 class="center" style="margin-top:26px">${esc(t('why'))}</h2>
   <div class="stats" style="grid-template-columns:repeat(3,1fr)">
     <div class="stat"><b>🎧</b><span>${esc(t('f1'))}</span></div>
@@ -257,8 +258,13 @@ window.downloadApp = async () => {
   if (window.__s19Install) {
     try { await window.__s19Install.prompt(); return; } catch (e) {}
   }
-  openModal(`<h2>ADD TO HOME SCREEN</h2>
-    <p class="muted">Your browser did not show the install box, so add the app by hand — it takes only a few seconds:</p>
+  // No install prompt: on Android Chrome that usually means the app is
+  // already installed (the old version), so the Download button must say
+  // so plainly instead of doing nothing.
+  const already = window.__s19AppInstalled || isStandalone();
+  openModal(`<h2>DOWNLOAD FOR ANDROID</h2>
+    <p style="margin-top:10px;line-height:1.7"><b>App already installed? Uninstall the old S_19 TOUR app first, then tap Download again.</b></p>
+    ${already ? '' : `<p class="muted">Your browser did not show the install box, so add the app by hand — it takes only a few seconds:</p>`}
     <div class="card"><b>Chrome (Android)</b><p class="muted">Tap the ⋮ menu at the top right, tap "Install app" or "Add to Home screen", then tap Add.</p></div>
     <div class="card"><b>Samsung Internet</b><p class="muted">Tap the ☰ menu, tap "Add page to", choose "Home screen", then tap Add.</p></div>
     <div class="card"><b>iPhone (Safari)</b><p class="muted">Tap the Share button, scroll down and tap "Add to Home Screen", then tap Add.</p></div>
