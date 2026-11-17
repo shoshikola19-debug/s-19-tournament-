@@ -43,6 +43,31 @@ function hashPassword(pw, salt = crypto.randomBytes(16).toString('hex')) {
   const hash = crypto.scryptSync(pw, salt, 64).toString('hex');
   return { salt, hash };
 }
+
+// ---- phone normalization ----
+// One number = one account. Stored form is '+8801XXXXXXXXX'; login accepts
+// +880..., 880..., 01..., 1... (10 digits), spaces/dashes — all compared on
+// the last 11 digits, so the same number always finds the same account.
+function normalizePhone(v) {
+  const d = String(v || '').replace(/\D/g, '');
+  if (!d) return null;
+  let tail = d;
+  if (tail.length === 13 && tail.startsWith('880')) tail = tail.slice(2);
+  else if (tail.length === 12 && tail.startsWith('88')) tail = tail.slice(2);
+  else if (tail.length === 10 && tail.startsWith('1')) tail = '0' + tail;
+  if (!/^01[3-9]\d{8}$/.test(tail)) return null;
+  return tail;
+}
+function canonicalPhone(v) {
+  const n = normalizePhone(v);
+  return n ? '+880' + n.slice(1) : null;
+}
+async function findProfileByPhone(v) {
+  const n = normalizePhone(v);
+  if (!n) return null;
+  const rows = await db.all('SELECT * FROM profiles');
+  return rows.find((r) => normalizePhone(r.phone) === n) || null;
+}
 async function auth(req, res, next) {
   const token = (req.headers.authorization || '').replace(/^Bearer /, '');
   if (!token) return res.status(401).json({ ok: false, error: 'Login required' });
@@ -176,26 +201,41 @@ app.post('/api/register', async (req, res) => {
     if (!username || !email || !phone || !password || String(password).length < 4) {
       return res.status(400).json({ ok: false, error: 'Username, email, phone and a 4+ character password are required' });
     }
-    if (!/^\+8801[3-9]\d{8}$/.test(String(phone))) {
+    const phoneCanon = canonicalPhone(phone);
+    if (!phoneCanon) {
       return res.status(400).json({ ok: false, error: 'Phone must be a Bangladeshi number starting +8801' });
     }
-    const existing = await db.get('SELECT * FROM profiles WHERE email = ? OR username = ?', [email, username]);
-    if (existing && existing.password_hash) {
-      return res.status(400).json({ ok: false, error: 'An account with this email or username already exists — login instead' });
+    const byEmail = await db.get('SELECT * FROM profiles WHERE LOWER(email) = LOWER(?)', [email]);
+    if (byEmail && byEmail.password_hash) {
+      return res.status(400).json({ ok: false, error: 'An account already exists with this email. Please login instead.' });
+    }
+    const byUsername = await db.get('SELECT * FROM profiles WHERE LOWER(username) = LOWER(?)', [username]);
+    if (byUsername && byUsername.password_hash) {
+      return res.status(400).json({ ok: false, error: 'This username is already taken. Please choose another one.' });
+    }
+    // One number = one account: a phone already on an active account cannot
+    // open a second one — login with it instead.
+    const byPhone = await findProfileByPhone(phoneCanon);
+    if (byPhone && byPhone.password_hash) {
+      return res.status(400).json({ ok: false, error: 'An account already exists with this number. Please login instead.' });
+    }
+    const existing = byEmail || byUsername;
+    if (byPhone && !byPhone.password_hash && (!existing || byPhone.id !== existing.id)) {
+      return res.status(400).json({ ok: false, error: 'This phone number belongs to another account — login with its email instead' });
     }
     const { salt, hash } = hashPassword(String(password));
     let profileId;
     if (existing) {
       // Owner restore: the seeded profile has no password yet; setting it here activates it.
       await db.run('UPDATE profiles SET password_hash = ?, password_salt = ?, phone = ? WHERE id = ?',
-        [hash, salt, phone, existing.id]);
+        [hash, salt, phoneCanon, existing.id]);
       profileId = existing.id;
     } else {
       const maxAcc = await db.get('SELECT MAX(account_id) AS m FROM profiles');
       const accountId = (maxAcc && maxAcc.m) ? maxAcc.m + 1 : 100001;
       profileId = await db.insert(
         'INSERT INTO profiles (account_id, username, email, phone, ign, uid, password_hash, password_salt, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
-        [accountId, username, email, phone, username, '', hash, salt, new Date().toISOString()]);
+        [accountId, username, email, phoneCanon, username, '', hash, salt, new Date().toISOString()]);
     }
     const token = crypto.randomBytes(32).toString('hex');
     await db.run('INSERT INTO sessions (token, profile_id, created_at) VALUES (?,?,?)',
@@ -208,8 +248,14 @@ app.post('/api/register', async (req, res) => {
 app.post('/api/login', async (req, res) => {
   try {
     const { emailOrUsername, password } = req.body || {};
-    const p = await db.get('SELECT * FROM profiles WHERE email = ? OR username = ?',
-      [emailOrUsername, emailOrUsername]);
+    if (!emailOrUsername || !password) {
+      return res.status(400).json({ ok: false, error: 'Email / username / phone and password are required' });
+    }
+    const id = String(emailOrUsername).trim();
+    // Email or username (case-insensitive), or phone in any format
+    // (+880..., 880..., 01..., spaces/dashes) — all find the same account.
+    let p = await db.get('SELECT * FROM profiles WHERE LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)', [id, id]);
+    if (!p) p = await findProfileByPhone(id);
     if (!p || !p.password_hash) return res.status(400).json({ ok: false, error: 'No account found — register first' });
     const { hash } = hashPassword(String(password), p.password_salt);
     if (hash !== p.password_hash) return res.status(400).json({ ok: false, error: 'Wrong password' });
@@ -226,7 +272,7 @@ app.post('/api/forgot-password', async (req, res) => {
     if (!newPassword || String(newPassword).length < 4) {
       return res.status(400).json({ ok: false, error: 'New password must be 4+ characters' });
     }
-    const p = await db.get('SELECT * FROM profiles WHERE email = ?', [email]);
+    const p = await db.get('SELECT * FROM profiles WHERE LOWER(email) = LOWER(?)', [email]);
     if (!p) return res.status(400).json({ ok: false, error: 'No account found with this email' });
     const { salt, hash } = hashPassword(String(newPassword));
     await db.run('UPDATE profiles SET password_hash = ?, password_salt = ? WHERE id = ?', [hash, salt, p.id]);
