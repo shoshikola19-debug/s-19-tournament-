@@ -199,6 +199,39 @@ function req(method, p, body, token) {
     const newLogin = await req('POST', '/api/login', { emailOrUsername: 'shoshikola19@gmail.com', password: 'newpass99' });
     assert.strictEqual(newLogin.status, 200, 'login with new password works');
 
+    // login by email / username / phone — one account, any identifier, any case/format
+    const regL = await req('POST', '/api/register', { username: 'logintest', email: 'LoginTest@Example.com', phone: '+8801812345678', password: 'pass1234' });
+    assert.strictEqual(regL.status, 200, 'login-test user register: ' + JSON.stringify(regL.data));
+    const tokL = regL.data.token;
+    const meL = await req('GET', '/api/me', null, tokL);
+    assert.strictEqual(meL.status, 200, 'login token works for /api/me');
+    assert.strictEqual(meL.data.profile.username, 'logintest', 'token belongs to logintest');
+    for (const [label, id] of [['email', 'LoginTest@Example.com'], ['email lower', 'logintest@example.com'], ['email upper', 'LOGINTEST@EXAMPLE.COM'], ['username', 'logintest'], ['username case', 'LoginTest'], ['phone +880', '+8801812345678'], ['phone 0', '01812345678'], ['phone 880', '8801812345678'], ['phone spaced', '0181-234 5678']]) {
+      const l = await req('POST', '/api/login', { emailOrUsername: id, password: 'pass1234' });
+      assert.strictEqual(l.status, 200, 'login by ' + label + ': ' + JSON.stringify(l.data));
+      assert.strictEqual(l.data.profile.username, 'logintest', 'login by ' + label + ' returns the same account');
+      const me2 = await req('GET', '/api/me', null, l.data.token);
+      assert.strictEqual(me2.status, 200, 'token from login by ' + label + ' opens the account');
+    }
+    // wrong password rejected; unknown phone rejected
+    const wrongPw = await req('POST', '/api/login', { emailOrUsername: '01812345678', password: 'wrongpass' });
+    assert.strictEqual(wrongPw.status, 400, 'wrong password rejected');
+    const noAcc = await req('POST', '/api/login', { emailOrUsername: '01999999999', password: 'pass1234' });
+    assert.strictEqual(noAcc.status, 400, 'unknown phone rejected');
+    // one number = one account: same phone with a new email is refused; same email, other case, refused
+    const dupPhone = await req('POST', '/api/register', { username: 'othername', email: 'other@example.com', phone: '01812345678', password: 'pass1234' });
+    assert.strictEqual(dupPhone.status, 400, 'duplicate phone register rejected');
+    assert.strictEqual(dupPhone.data.error, 'An account already exists with this number. Please login instead.', 'duplicate phone message in English');
+    const dupPhoneFmt = await req('POST', '/api/register', { username: 'othername2', email: 'other2@example.com', phone: '+880 1812-345678', password: 'pass1234' });
+    assert.strictEqual(dupPhoneFmt.status, 400, 'duplicate phone in another format rejected');
+    assert.strictEqual(dupPhoneFmt.data.error, 'An account already exists with this number. Please login instead.', 'duplicate phone message regardless of format');
+    const dupEmailCase = await req('POST', '/api/register', { username: 'another', email: 'LOGINTEST@example.com', phone: '+8801912345679', password: 'pass1234' });
+    assert.strictEqual(dupEmailCase.status, 400, 'duplicate email (case-insensitive) rejected');
+    assert.strictEqual(dupEmailCase.data.error, 'An account already exists with this email. Please login instead.', 'duplicate email message in English');
+    const dupUser = await req('POST', '/api/register', { username: 'logintest', email: 'newuser@example.com', phone: '+8801912345680', password: 'pass1234' });
+    assert.strictEqual(dupUser.status, 400, 'duplicate username rejected');
+    assert.strictEqual(dupUser.data.error, 'This username is already taken. Please choose another one.', 'duplicate username message in English');
+
     // payment info + landing page + manifest
     const pay = await req('GET', '/api/payment-info');
     assert.strictEqual(pay.data.bkashNumber, '01906502081', 'bKash number seeded');
@@ -209,7 +242,7 @@ function req(method, p, body, token) {
     // team boxes, Match Full, tutorial, Remember Me, Forgot, results tabs,
     // support modal + animations must be present in served files
     const appJs = await (await fetch('http://127.0.0.1:3101/app.js')).text();
-    for (const s of ['banner-carousel', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'TOPUP BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'S_19 on Telegram', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'Join with Squad', 'squadNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled', 'ad-prize1', 'em-prize1', 'Match Prizes', '1st Prize', '2nd Prize', 'prize1', 'avatar-img', 'avatar-cam', 'uploadAvatar', 'copyS19Id', 'profile-tiles', 'profile-tile', 'menu-list', 'menu-row', 'BDT', 'Edit Profile', 'Daily Spin', 'All Rules', 'Leaderboard', 'wallet-hero', 'Available Balance', 'DEPOSITED', 'WINNING', 'Transfer Balance', 'openTransfer', 'transfer-balance', 'Transfer to Deposit', 'BKASH &amp; NAGAD', 'Proceed to Payment', '10 - 1000', 'minimum of 10 Taka', 'maximum of 1000', 'Transaction History', 'openTxHistory', 'How to add money?', 'openHowToAddMoney', 'How to join a match?', 'How to withdraw?', 'openHowToWithdraw', 'Nagad number not added yet', 'Nagad number will be added later', 'depPickGateway', 'depPickMethod', 'depCheck', 'depStep2', 'match-head', 'match-date', 'fmtDateTime', 'tile-ic', 'reg-row', 'join-btn', 'tutorial-pill', 'ad-slots', 'em-slots', 'Total Slots', 'adSlotsDefault', 'SLOT_DEFAULTS']) {
+    for (const s of ['banner-carousel', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'TOPUP BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'S_19 on Telegram', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'Join with Squad', 'squadNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled', 'ad-prize1', 'em-prize1', 'Match Prizes', '1st Prize', '2nd Prize', 'prize1', 'avatar-img', 'avatar-cam', 'uploadAvatar', 'copyS19Id', 'profile-tiles', 'profile-tile', 'menu-list', 'menu-row', 'BDT', 'Edit Profile', 'Daily Spin', 'All Rules', 'Leaderboard', 'wallet-hero', 'Available Balance', 'DEPOSITED', 'WINNING', 'Transfer Balance', 'openTransfer', 'transfer-balance', 'Transfer to Deposit', 'BKASH &amp; NAGAD', 'Proceed to Payment', '10 - 1000', 'minimum of 10 Taka', 'maximum of 1000', 'Transaction History', 'openTxHistory', 'How to add money?', 'openHowToAddMoney', 'How to join a match?', 'How to withdraw?', 'openHowToWithdraw', 'Nagad number not added yet', 'Nagad number will be added later', 'depPickGateway', 'depPickMethod', 'depCheck', 'depStep2', 'match-head', 'match-date', 'fmtDateTime', 'tile-ic', 'reg-row', 'join-btn', 'tutorial-pill', 'ad-slots', 'em-slots', 'Total Slots', 'adSlotsDefault', 'SLOT_DEFAULTS', 'Email / Username / Phone', 'Email, username or phone number', 'already exists', 'already taken']) {
       assert.ok(appJs.includes(s), 'app.js missing: ' + s);
     }
     const css = await (await fetch('http://127.0.0.1:3101/styles.css')).text();
