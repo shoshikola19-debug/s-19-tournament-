@@ -18,7 +18,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const PORT = process.env.PORT || 3000;
 const OWNER_EMAIL = 'shoshikola19@gmail.com';
-const WITHDRAW_MIN = 100;
 const DEPOSIT_MIN = 10;
 const DEPOSIT_MAX = 1000;
 const ROOM_REVEAL_MINUTES = 5;
@@ -37,6 +36,45 @@ function roomRevealed(t) {
   return Date.now() >= matchStartMs(t) - ROOM_REVEAL_MINUTES * 60 * 1000;
 }
 function matchStarted(t) { return Date.now() >= matchStartMs(t); }
+
+// ---- app settings (admin-editable in the Admin Panel, stored in the
+// settings key-value table next to the payment numbers) ----
+const APP_SETTING_DEFAULTS = {
+  app_name: 'S_19 TOURNAMENT',
+  notice_rules: 'নিজের স্লট নম্বর মনে রাখবেন।\nRoom Details থেকে পাওয়া ID ও Password দিয়ে কাস্টম রুমে ঢুকবেন।\nObserver থেকে নিজের স্লটে যাবেন।\nস্লটে সমস্যা হলে গেমে মেসেজ না দিয়ে Voice On করে হোস্টকে জানাবেন।\n⚠ শৃঙ্খলা বজায় রাখবেন — অযথা ভয়েস অন করে চিল্লাচিল্লি বা বিশৃঙ্খলা করবেন না। এটি টুর্নামেন্টের পরিবেশ নষ্ট করে।\n📹 ভিডিও রেকর্ড (Screen Record) বাধ্যতামূলক: আইডি-পাসওয়ার্ড নেওয়া থেকে শুরু করে ম্যাচ স্টার্ট হওয়া পর্যন্ত পুরো সময়টা ভিডিও করে রাখবেন। ভিডিও প্রমাণ ছাড়া কোনো প্রকার রিফান্ড (Refund) দাবি করলে তা গ্রহণযোগ্য হবে না।',
+  banner_title: 'S_19 TOURNAMENT',
+  banner_subtitle: 'PLAY WIN ENJOY — Daily BR • CS • Lone Wolf matches. Win real Taka prizes!',
+  withdraw_min: '100',
+  withdraw_start: '600', // 10:00 AM, minutes from midnight (Dhaka)
+  withdraw_end: '1290', // 9:30 PM
+  spin_enabled: '1',
+};
+function parseIntSetting(v, fallback) {
+  const n = Number(v);
+  return Number.isInteger(n) ? n : fallback;
+}
+async function getAppSettings() {
+  const rows = await db.all('SELECT key, value FROM settings');
+  const s = { ...APP_SETTING_DEFAULTS };
+  for (const r of rows) if (r.key in s) s[r.key] = r.value;
+  return {
+    appName: String(s.app_name || 'S_19 TOURNAMENT'),
+    noticeRules: String(s.notice_rules || ''),
+    bannerTitle: String(s.banner_title || 'S_19 TOURNAMENT'),
+    bannerSubtitle: String(s.banner_subtitle || ''),
+    withdrawMin: parseIntSetting(s.withdraw_min, 100),
+    withdrawStart: parseIntSetting(s.withdraw_start, 600),
+    withdrawEnd: parseIntSetting(s.withdraw_end, 1290),
+    spinEnabled: s.spin_enabled !== '0',
+  };
+}
+function fmtClock(mins) {
+  const m = Math.max(0, Math.min(1439, Number(mins) || 0));
+  const h = Math.floor(m / 60), mm = m % 60;
+  const ap = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${String(mm).padStart(2, '0')} ${ap}`;
+}
 
 // ---- passwords / sessions ----
 function hashPassword(pw, salt = crypto.randomBytes(16).toString('hex')) {
@@ -259,6 +297,7 @@ app.post('/api/login', async (req, res) => {
     if (!p || !p.password_hash) return res.status(400).json({ ok: false, error: 'No account found — register first' });
     const { hash } = hashPassword(String(password), p.password_salt);
     if (hash !== p.password_hash) return res.status(400).json({ ok: false, error: 'Wrong password' });
+    if (p.banned) return res.status(403).json({ ok: false, error: 'This account is banned' });
     const token = crypto.randomBytes(32).toString('hex');
     await db.run('INSERT INTO sessions (token, profile_id, created_at) VALUES (?,?,?)',
       [token, p.id, new Date().toISOString()]);
@@ -436,6 +475,94 @@ app.get('/api/admin/transactions', adminAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
 
+// ---- app settings ----
+// Public display config — what every player sees (app name, notice rules,
+// banner, spin on/off, withdraw limits). The admin-only GET/PUT below
+// manage the same values; ordinary users can never read or change the
+// admin settings endpoint itself.
+app.get('/api/app-config', async (req, res) => {
+  try { res.json({ ok: true, config: await getAppSettings() }); }
+  catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+app.get('/api/settings', adminAuth, async (req, res) => {
+  try { res.json({ ok: true, settings: await getAppSettings() }); }
+  catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+app.put('/api/settings', adminAuth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const updates = {};
+    if (b.appName !== undefined) {
+      const v = String(b.appName).trim();
+      if (!v || v.length > 60) return res.status(400).json({ ok: false, error: 'App name must be 1–60 characters' });
+      updates.app_name = v;
+    }
+    if (b.noticeRules !== undefined) {
+      const v = String(b.noticeRules);
+      if (v.length > 5000) return res.status(400).json({ ok: false, error: 'Notice is too long (max 5000 characters)' });
+      updates.notice_rules = v;
+    }
+    if (b.bannerTitle !== undefined) {
+      const v = String(b.bannerTitle).trim();
+      if (v.length > 120) return res.status(400).json({ ok: false, error: 'Banner title is too long (max 120 characters)' });
+      updates.banner_title = v;
+    }
+    if (b.bannerSubtitle !== undefined) {
+      const v = String(b.bannerSubtitle).trim();
+      if (v.length > 200) return res.status(400).json({ ok: false, error: 'Banner subtitle is too long (max 200 characters)' });
+      updates.banner_subtitle = v;
+    }
+    if (b.withdrawMin !== undefined) {
+      const n = Number(b.withdrawMin);
+      if (!Number.isInteger(n) || n < 0 || n > 100000) return res.status(400).json({ ok: false, error: 'Minimum withdrawal must be 0–100000' });
+      updates.withdraw_min = String(n);
+    }
+    if (b.withdrawStart !== undefined || b.withdrawEnd !== undefined) {
+      const cur = await getAppSettings();
+      const st = b.withdrawStart !== undefined ? Number(b.withdrawStart) : cur.withdrawStart;
+      const en = b.withdrawEnd !== undefined ? Number(b.withdrawEnd) : cur.withdrawEnd;
+      if (!Number.isInteger(st) || st < 0 || st > 1439 || !Number.isInteger(en) || en < 0 || en > 1439 || st >= en) {
+        return res.status(400).json({ ok: false, error: 'Withdrawal window must be within a day, start before end' });
+      }
+      updates.withdraw_start = String(st);
+      updates.withdraw_end = String(en);
+    }
+    if (b.spinEnabled !== undefined) updates.spin_enabled = b.spinEnabled ? '1' : '0';
+    for (const [k, v] of Object.entries(updates)) {
+      await db.run('INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [k, v]);
+    }
+    res.json({ ok: true, settings: await getAppSettings() });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+
+// ---- players (Admin Panel: list + Ban/Unban) ----
+app.get('/api/admin/players', adminAuth, async (req, res) => {
+  try {
+    const rows = await db.all('SELECT * FROM profiles ORDER BY id ASC');
+    const players = [];
+    for (const p of rows) {
+      const w = await walletFor(p.id);
+      players.push({
+        id: p.id, username: p.username, accountId: p.account_id,
+        phone: p.phone || '', email: p.email || '',
+        banned: !!p.banned, isAdmin: p.email === OWNER_EMAIL,
+        depositBalance: w.depositBalance, winningBalance: w.winningBalance,
+      });
+    }
+    res.json({ ok: true, players });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+app.post('/api/admin/players/:id/ban', adminAuth, async (req, res) => {
+  try {
+    const p = await db.get('SELECT * FROM profiles WHERE id = ?', [req.params.id]);
+    if (!p) return res.status(404).json({ ok: false, error: 'Player not found' });
+    if (p.email === OWNER_EMAIL) return res.status(400).json({ ok: false, error: 'Cannot ban the owner' });
+    const banned = !!(req.body || {}).banned;
+    await db.run('UPDATE profiles SET banned = ? WHERE id = ?', [banned ? 1 : 0, p.id]);
+    res.json({ ok: true, banned });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+
 function safeProfile(p) {
   if (!p) return null;
   return {
@@ -591,6 +718,7 @@ app.post('/api/tournaments/:id/cancel', adminAuth, async (req, res) => {
 // ---- bookings (join a match) ----
 app.post('/api/tournaments/:id/book', auth, async (req, res) => {
   try {
+    if (req.profile.banned) return res.status(403).json({ ok: false, error: 'This account is banned' });
     const t = await db.get('SELECT * FROM tournaments WHERE id = ?', [req.params.id]);
     if (!t) return res.status(404).json({ ok: false, error: 'Match not found' });
     if (t.status !== 'upcoming') return res.status(400).json({ ok: false, error: 'This match is not open for joining' });
@@ -723,13 +851,14 @@ app.post('/api/withdraw', auth, async (req, res) => {
   try {
     const { amount, method, accountNumber } = req.body || {};
     const amt = Number(amount);
-    if (!amt || amt < WITHDRAW_MIN) {
-      return res.status(400).json({ ok: false, error: 'Minimum withdrawal is ৳' + WITHDRAW_MIN });
+    const s = await getAppSettings();
+    if (!amt || amt < s.withdrawMin) {
+      return res.status(400).json({ ok: false, error: 'Minimum withdrawal is ৳' + s.withdrawMin });
     }
     const now = dhakaNow();
     const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
-    if (mins < 10 * 60 || mins > 21 * 60 + 30) {
-      return res.status(400).json({ ok: false, error: 'Withdrawals are open 10:00 AM – 9:30 PM (Dhaka time)' });
+    if (mins < s.withdrawStart || mins > s.withdrawEnd) {
+      return res.status(400).json({ ok: false, error: `Withdrawals are open ${fmtClock(s.withdrawStart)} – ${fmtClock(s.withdrawEnd)} (Dhaka time)` });
     }
     const w = await walletFor(req.profileId);
     if (amt > w.winningBalance) {
@@ -851,16 +980,21 @@ function nextSpinAtMs() {
 }
 function spinState(p) {
   const spun = p.last_spin_date === dhakaDateStr();
-  return {
-    ok: true, canSpin: !spun, spunToday: spun,
+  return getAppSettings().then((s) => ({
+    ok: true, canSpin: !spun && s.spinEnabled, spunToday: spun,
+    spinEnabled: s.spinEnabled,
     nextSpinAt: nextSpinAtMs(),
     passes: { br: p.br_passes || 0, cs: p.cs_passes || 0, lw: p.lw_passes || 0, all: p.all_passes || 0 },
-  };
+  }));
 }
 app.get('/api/daily-spin', auth, async (req, res) => {
-  res.json(spinState(req.profile));
+  res.json(await spinState(req.profile));
 });
 app.post('/api/daily-spin', auth, async (req, res) => {
+  const s = await getAppSettings();
+  if (!s.spinEnabled) {
+    return res.status(400).json({ ok: false, error: 'Daily Spin is currently disabled' });
+  }
   if (req.profile.last_spin_date === dhakaDateStr()) {
     return res.status(400).json({ ok: false, error: 'You already spun today — come back tomorrow' });
   }
@@ -874,7 +1008,7 @@ app.post('/api/daily-spin', auth, async (req, res) => {
   await db.run('UPDATE profiles SET last_spin_date = ?, last_spin_at = ? WHERE id = ?',
     [dhakaDateStr(), now, req.profileId]);
   const p = await db.get('SELECT * FROM profiles WHERE id = ?', [req.profileId]);
-  res.json({ ...spinState(p), segment: segIdx, prize, prizeLabel: SPIN_PRIZE_LABEL[prize] });
+  res.json({ ...(await spinState(p)), segment: segIdx, prize, prizeLabel: SPIN_PRIZE_LABEL[prize] });
 });
 
 // ---- payment info ----
