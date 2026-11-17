@@ -80,12 +80,43 @@ function req(method, p, body, token) {
     assert.strictEqual(ok.status, 200, 'approve deposit');
     me = await req('GET', '/api/me', null, ownerToken);
     assert.strictEqual(me.data.wallet.depositBalance, 200, 'deposit credited on approval');
+
+    // admin payment-requests list: new deposit shows up with player details,
+    // non-admin gets 403, reject credits nothing, approve credits, double review rejected
+    const dep2 = await req('POST', '/api/deposit', { amount: 150, method: 'bkash', senderNumber: '01906502081', trxId: 'PENDTX001' }, ownerToken);
+    assert.strictEqual(dep2.status, 200, 'second deposit request created');
+    const pend = await req('GET', '/api/admin/transactions', null, ownerToken);
+    assert.strictEqual(pend.status, 200, 'admin list: ' + JSON.stringify(pend.data));
+    const row = pend.data.requests.find((r) => r.id === dep2.data.id);
+    assert.ok(row, 'pending deposit in admin list');
+    assert.strictEqual(row.username, 'bijoy', 'list shows username');
+    assert.strictEqual(row.amount, 150, 'list shows amount');
+    assert.strictEqual(row.method, 'bkash', 'list shows method');
+    assert.strictEqual(row.trxId, 'PENDTX001', 'list shows TrxID');
+    const regNa = await req('POST', '/api/register', { username: 'plainuser', email: 'plain@example.com', phone: '+8801910000001', password: 'test1234' });
+    assert.strictEqual(regNa.status, 200, 'non-admin user register');
+    const pendNoAuth = await req('GET', '/api/admin/transactions', null, regNa.data.token);
+    assert.strictEqual(pendNoAuth.status, 403, 'non-admin cannot list payment requests');
+    const rej = await req('POST', `/api/transactions/${dep2.data.id}/review`, { approve: false }, ownerToken);
+    assert.strictEqual(rej.status, 200, 'reject deposit');
+    me = await req('GET', '/api/me', null, ownerToken);
+    assert.strictEqual(me.data.wallet.depositBalance, 200, 'reject credits nothing');
+    const dblRev = await req('POST', `/api/transactions/${dep2.data.id}/review`, { approve: true }, ownerToken);
+    assert.strictEqual(dblRev.status, 400, 'second review rejected');
+    const dep3 = await req('POST', '/api/deposit', { amount: 50, method: 'bkash', senderNumber: '01906502081', trxId: 'PENDTX002' }, ownerToken);
+    assert.strictEqual(dep3.status, 200, 'third deposit request created');
+    const ok3 = await req('POST', `/api/transactions/${dep3.data.id}/review`, { approve: true }, ownerToken);
+    assert.strictEqual(ok3.status, 200, 'approve third deposit');
+    me = await req('GET', '/api/me', null, ownerToken);
+    assert.strictEqual(me.data.wallet.depositBalance, 250, 'approve credits 50');
+    const pendAfter = await req('GET', '/api/admin/transactions', null, ownerToken);
+    assert.ok(!pendAfter.data.requests.some((r) => r.id === dep3.data.id), 'approved request leaves the pending list');
     const book = await req('POST', '/api/tournaments/2/book', { slotNumber: 1, playerName: 'bijoy' }, ownerToken);
     assert.strictEqual(book.status, 200, 'book slot: ' + JSON.stringify(book.data));
     const dbl = await req('POST', '/api/tournaments/2/book', { slotNumber: 1, playerName: 'bijoy' }, ownerToken);
     assert.strictEqual(dbl.status, 400, 'double-take of slot 1 rejected');
     me = await req('GET', '/api/me', null, ownerToken);
-    assert.strictEqual(me.data.wallet.depositBalance, 180, 'fee 20 charged');
+    assert.strictEqual(me.data.wallet.depositBalance, 230, 'fee 20 charged');
 
     // squad join: second user books CS 4v4 slot 1 with 3 teammates; names are stored
     const reg2 = await req('POST', '/api/register', { username: 'squadmate', email: 'squad@example.com', phone: '+8801912345678', password: 'test1234' });
@@ -166,7 +197,7 @@ function req(method, p, body, token) {
     const cutEq = await req('PUT', `/api/tournaments/${mkG.data.id}`, { totalSlots: 3 }, ownerToken);
     assert.strictEqual(cutEq.status, 200, 'cut to exactly 3 booked allowed');
 
-    // transfer balance: Winning -> Deposit only (deposit 180, winning 260 here)
+    // transfer balance: Winning -> Deposit only (deposit 230, winning 260 here)
     const trBad = await req('POST', '/api/transfer-balance', { amount: 500 }, ownerToken);
     assert.strictEqual(trBad.status, 400, 'transfer more than winning rejected');
     const trZero = await req('POST', '/api/transfer-balance', { amount: 0 }, ownerToken);
@@ -177,7 +208,7 @@ function req(method, p, body, token) {
     assert.strictEqual(tr.status, 200, 'transfer 100: ' + JSON.stringify(tr.data));
     me = await req('GET', '/api/me', null, ownerToken);
     assert.strictEqual(me.data.wallet.winningBalance, 160, 'winning 260-100=160, got ' + me.data.wallet.winningBalance);
-    assert.strictEqual(me.data.wallet.depositBalance, 280, 'deposit 180+100=280, got ' + me.data.wallet.depositBalance);
+    assert.strictEqual(me.data.wallet.depositBalance, 330, 'deposit 230+100=330, got ' + me.data.wallet.depositBalance);
     const trAgain = await req('POST', '/api/transfer-balance', { amount: 161 }, ownerToken);
     assert.strictEqual(trAgain.status, 400, 'transfer above remaining winning rejected');
 
@@ -219,14 +250,14 @@ function req(method, p, body, token) {
     assert.strictEqual(bookPass.status, 200, 'BR pass join: ' + JSON.stringify(bookPass.data));
     assert.strictEqual(bookPass.data.usedPass, 'br', 'used the BR pass');
     me = await req('GET', '/api/me', null, ownerToken);
-    assert.strictEqual(me.data.wallet.depositBalance, 280, 'pass join charges no fee');
+    assert.strictEqual(me.data.wallet.depositBalance, 330, 'pass join charges no fee');
     assert.deepStrictEqual(me.data.profile.passes, { br: 0, cs: 0, lw: 0, all: 0 }, 'BR pass spent');
     const bookNoPass = await req('POST', `/api/tournaments/${mkDef.data.id}/book`, { slotNumber: 1, playerName: 'bijoy', usePass: true }, ownerToken);
     assert.strictEqual(bookNoPass.status, 400, 'usePass with no pass rejected');
     const bookPaid = await req('POST', `/api/tournaments/${mkDef.data.id}/book`, { slotNumber: 1, playerName: 'bijoy' }, ownerToken);
     assert.strictEqual(bookPaid.status, 200, 'normal join without pass: ' + JSON.stringify(bookPaid.data));
     me = await req('GET', '/api/me', null, ownerToken);
-    assert.strictEqual(me.data.wallet.depositBalance, 260, 'normal join still charges fee 20');
+    assert.strictEqual(me.data.wallet.depositBalance, 310, 'normal join still charges fee 20');
     setPasses(0, 0, 0, 1);
     const bookAll = await req('POST', `/api/tournaments/${mk2.data.id}/book`, { slotNumber: 1, playerName: 'bijoy', usePass: true }, ownerToken);
     assert.strictEqual(bookAll.status, 200, 'All pass join on CS match: ' + JSON.stringify(bookAll.data));
