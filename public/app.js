@@ -240,7 +240,8 @@ function authHTML() {
     <p class="muted">${isLogin ? 'Login to your S_19 Tournament account' : 'Join S_19 Tournament and start playing'}</p></div>
   <div class="card">
     ${isLogin ? '' : `<div class="field"><label>Username</label><input id="f-username" placeholder="Your username"></div>`}
-    <div class="field"><label>Email</label><input id="f-email" type="email" placeholder="you@example.com"></div>
+    ${isLogin ? `<div class="field"><label>Email / Username / Phone</label><input id="f-email" type="text" placeholder="Email, username or phone number"></div>`
+    : `<div class="field"><label>Email</label><input id="f-email" type="email" placeholder="you@example.com"></div>`}
     ${isLogin ? '' : `<div class="field"><label>Phone (+88)</label><input id="f-phone" placeholder="+8801XXXXXXXXX"></div>`}
     <div class="field"><label>Password</label><input id="f-password" type="password" placeholder="••••••••"></div>
     ${isLogin ? '' : `<div class="field"><label>Confirm Password</label><input id="f-password2" type="password" placeholder="••••••••"></div>`}
@@ -269,7 +270,11 @@ window.doRegister = async () => {
     const d = await api('/api/register', { method: 'POST', body: JSON.stringify({ username: $('#f-username').value.trim(), email: $('#f-email').value.trim(), phone: $('#f-phone').value.trim(), password: pw }) });
     saveToken(d.token, true);
     await loadMe(); view = 'play'; showNotice();
-  } catch (e) { $('#auth-err').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  } catch (e) {
+    // Duplicate account? Show the English message in red + a Login link.
+    const dup = /already exists|already taken|belongs to another account/i.test(e.message || '');
+    $('#auth-err').innerHTML = `<div class="err">${esc(e.message)}${dup ? ` <a href="#" onclick="goAuth('login');return false">Login</a>` : ''}</div>`;
+  }
 };
 window.openForgot = () => {
   openModal(`<h2>Forgot Password</h2>
@@ -1042,7 +1047,7 @@ setInterval(() => {
   if (token) { await loadMe(); if (profile) view = 'play'; }
   // Installed app: skip the landing/download page entirely —
   // splash -> login (logged out) or home (logged in). Browser links keep landing.
-  if (view === 'landing' && isStandalone()) view = token ? 'play' : 'login';
+  if (view === 'landing' && isStandalone()) view = (token && profile) ? 'play' : 'login';
   // A saved login that stopped working goes to Login, never back to the
   // landing/download page — a logged-in phone never sees Download again.
   if (view === 'landing' && hadToken && !profile) view = 'login';
