@@ -234,4 +234,39 @@ h3{font-size:16px;margin-bottom:8px}
 .menu-tx b{font-size:16px}
 .menu-tx span{font-size:13px;color:var(--mut)}
 .menu-arrow{font-size:26px;color:#666;line-height:1}
+/* wallet page (ZVY-style layout, own S_19 branding) */
+.wallet-hero{background:linear-gradient(135deg,#ff1e2d,#c40a12 60%,#a3060d);border-radius:20px;padding:20px;margin-top:14px;box-shadow:0 8px 26px rgba(229,9,20,.35)}
+.wallet-hero-top{display:flex;justify-content:space-between;align-items:center;font-weight:800;letter-spacing:1px}
+.wallet-hero-top b{color:var(--gold);letter-spacing:2px}
+.wallet-hero-bal{margin-top:22px}
+.wallet-hero-bal span{color:rgba(255,255,255,.75);font-size:14px}
+.wallet-hero-bal b{display:block;font-size:38px;font-weight:800;margin-top:4px}
+.wallet-tiles{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.wallet-tile{background:#141414;border:1px solid var(--line);border-radius:16px;padding:16px;text-align:center}
+.wallet-tile .wt-ic{font-size:26px;display:block}
+.wallet-tile span{font-size:12px;letter-spacing:1.5px;color:var(--mut);display:block;margin-top:6px}
+.wallet-tile b{display:block;font-size:22px;margin-top:6px}
+.wallet-actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.wallet-btn{border:none;border-radius:16px;padding:20px 10px;color:#fff;font-size:17px;font-weight:800;display:flex;flex-direction:column;align-items:center;gap:6px}
+.wallet-btn span{font-size:16px}
+.wallet-btn-blue{background:linear-gradient(180deg,#2563eb,#1d4ed8);box-shadow:0 6px 18px rgba(37,99,235,.4)}
+.wallet-btn-green{background:linear-gradient(180deg,#22c55e,#16a34a);box-shadow:0 6px 18px rgba(34,197,94,.4)}
+.wallet-btn-purple{width:100%;margin-top:12px;background:linear-gradient(180deg,#7c3aed,#6d28d9);box-shadow:0 6px 18px rgba(124,58,237,.4);flex-direction:row;justify-content:center}
+.wallet-btn:active{transform:scale(.97)}
+/* add money screen */
+.addmoney-hero{text-align:center}
+.addmoney-ic{width:84px;height:84px;margin:6px auto 14px;border-radius:22px;background:linear-gradient(180deg,var(--red2),var(--red));display:flex;align-items:center;justify-content:center;font-size:42px;box-shadow:0 0 30px rgba(229,9,20,.6)}
+.dep-note{display:flex;gap:10px;border:1px solid #7a1f1f;background:#1c0d0d;border-radius:14px;padding:14px;margin-top:16px}
+.dep-note-ic{color:var(--gold);font-size:20px;flex:0 0 auto}
+.dep-note p{font-size:13px;line-height:1.6;color:#e8d8d8}
+.gw-pills{display:flex;gap:10px;margin-top:10px}
+.gw-pill{flex:1;background:#1e1e1e;border:1.5px solid var(--line);color:#fff;border-radius:12px;padding:13px 8px;font-size:14px;font-weight:800}
+.gw-pill.on{border-color:var(--red);background:rgba(229,9,20,.12);box-shadow:0 0 12px rgba(229,9,20,.25)}
+.gw-pill.sm{flex:1;padding:10px 8px;font-size:13px}
+.gw-sub{display:flex;gap:10px;margin-top:10px}
+.amt-box{display:flex;align-items:center;gap:8px;border:1.5px solid var(--red);border-radius:14px;padding:4px 16px;margin-top:10px;background:#141414}
+.amt-box span{font-size:26px;font-weight:800;color:#fff}
+.amt-box input{border:none;background:none;text-align:center;font-size:24px;font-weight:800;padding:14px 0}
+.amt-box input:focus{outline:none}
+.btn-proceed:disabled{background:#3a3a3a !important;box-shadow:none !important;color:#999 !important}
 @media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
