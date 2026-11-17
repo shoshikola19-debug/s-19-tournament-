@@ -96,8 +96,8 @@ async function walletFor(profileId) {
   return { depositBalance: deposit, winningBalance: winning, topupTotal, transactions: tx };
 }
 
-// ---- slot rules (server-enforced, same as the artifact) ----
-function fixedSlots(category, subcategory) {
+// ---- slot defaults (defaults only; the admin may set any totalSlots 2–100) ----
+function defaultSlots(category, subcategory) {
   const key = category + '/' + subcategory;
   const map = {
     'br/Solo': 48, 'br/Duo': 50, 'br/Esports PRO': 50,
@@ -106,6 +106,7 @@ function fixedSlots(category, subcategory) {
   };
   return map[key] ?? null;
 }
+function validSlots(n) { return Number.isInteger(n) && n >= 2 && n <= 100; }
 const BR_SPLIT = { 1: 90, 2: 70, 3: 40, 4: 30, 5: 20 }; // BR Solo/Duo prize split
 
 // ---- seed from data/seed.json (exact artifact export) ----
@@ -282,8 +283,10 @@ app.get('/api/tournaments/admin', adminAuth, async (req, res) => {
 app.post('/api/tournaments', adminAuth, async (req, res) => {
   try {
     const b = req.body || {};
-    const slots = fixedSlots(b.category, b.subcategory);
-    if (slots == null) return res.status(400).json({ ok: false, error: 'Unknown category/subcategory' });
+    const def = defaultSlots(b.category, b.subcategory);
+    if (def == null) return res.status(400).json({ ok: false, error: 'Unknown category/subcategory' });
+    const slots = b.totalSlots == null ? def : Number(b.totalSlots);
+    if (!validSlots(slots)) return res.status(400).json({ ok: false, error: 'Total slots must be 2–100' });
     if (!b.title || String(b.title).length > 160) {
       return res.status(400).json({ ok: false, error: 'Title: must be 160 characters or fewer' });
     }
@@ -305,12 +308,21 @@ app.put('/api/tournaments/:id', adminAuth, async (req, res) => {
     const b = req.body || {};
     const t = await db.get('SELECT * FROM tournaments WHERE id = ?', [req.params.id]);
     if (!t) return res.status(404).json({ ok: false, error: 'Match not found' });
-    const slots = fixedSlots(b.category || t.category, b.subcategory || t.subcategory);
+    // Admin-set slots (2–100); never forced back to the category default.
+    // Reducing below the already-booked count would break bookings, so reject it.
+    let slots = t.total_slots;
+    if (b.totalSlots != null) {
+      slots = Number(b.totalSlots);
+      if (!validSlots(slots)) return res.status(400).json({ ok: false, error: 'Total slots must be 2–100' });
+      const booked = await db.get("SELECT COUNT(*) AS n FROM bookings WHERE tournament_id = ? AND status IN ('pending','approved')", [t.id]);
+      const bookedN = booked ? booked.n : 0;
+      if (slots < bookedN) return res.status(400).json({ ok: false, error: `Cannot reduce slots below ${bookedN} booked slot(s)` });
+    }
     await db.run(
       'UPDATE tournaments SET title=?, category=?, subcategory=?, mode=?, match_type=?, map=?, pov=?, match_date=?, match_time=?, total_slots=?, entry_fee=?, prize_pool=?, prize1=?, prize2=?, prize3=?, prize4=?, prize5=?, per_kill_prize=?, per_kill_points=?, room_id=?, room_password=? WHERE id=?',
       [b.title ?? t.title, b.category ?? t.category, b.subcategory ?? t.subcategory,
        b.mode ?? t.mode, b.matchType ?? t.match_type, b.map ?? t.map, b.pov ?? t.pov,
-       b.matchDate ?? t.match_date, b.matchTime ?? t.match_time, slots ?? t.total_slots,
+       b.matchDate ?? t.match_date, b.matchTime ?? t.match_time, slots,
        b.entryFee ?? t.entry_fee, b.prizePool ?? t.prize_pool,
        b.prize1 ?? t.prize1, b.prize2 ?? t.prize2, b.prize3 ?? t.prize3,
        b.prize4 ?? t.prize4, b.prize5 ?? t.prize5,
