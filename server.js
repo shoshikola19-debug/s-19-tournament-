@@ -19,6 +19,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 const PORT = process.env.PORT || 3000;
 const OWNER_EMAIL = 'shoshikola19@gmail.com';
 const WITHDRAW_MIN = 100;
+const DEPOSIT_MIN = 10;
+const DEPOSIT_MAX = 1000;
 const ROOM_REVEAL_MINUTES = 5;
 
 // ---- time helpers (Asia/Dhaka is UTC+6, no DST) ----
@@ -78,6 +80,9 @@ async function walletFor(profileId) {
     else if (t.type === 'refund' && t.status === 'approved') deposit += t.amount;
     else if (t.type === 'entry' && t.status === 'approved') deposit += t.amount; // stored negative
     else if ((t.type === 'prize' || t.type === 'spin') && t.status === 'approved') winning += t.amount;
+    // Transfer Balance: Winning -> Deposit (approved instantly, internal move).
+    else if (t.type === 'transfer_out' && t.status === 'approved') winning += t.amount; // stored negative
+    else if (t.type === 'transfer_in' && t.status === 'approved') deposit += t.amount;
     else if (t.type === 'withdraw') {
       // Pending withdrawals hold the amount immediately; approved ones are final.
       if (t.status === 'pending' || t.status === 'approved') {
@@ -446,8 +451,16 @@ app.post('/api/deposit', auth, async (req, res) => {
   try {
     const { amount, method, senderNumber, trxId } = req.body || {};
     const amt = Number(amount);
-    if (!amt || amt <= 0) return res.status(400).json({ ok: false, error: 'Enter an amount' });
+    if (!Number.isInteger(amt) || amt < DEPOSIT_MIN || amt > DEPOSIT_MAX) {
+      return res.status(400).json({ ok: false, error: `Deposit must be ৳${DEPOSIT_MIN} – ৳${DEPOSIT_MAX}` });
+    }
     if (!['bkash', 'nagad', 'rocket'].includes(method)) return res.status(400).json({ ok: false, error: 'Pick bKash, Nagad or Rocket' });
+    // The owner must have set the number for this method (Nagad/Rocket not added yet).
+    const numRow = await db.get('SELECT value FROM settings WHERE key = ?', [method]);
+    if (!numRow || !String(numRow.value || '').trim()) {
+      const label = method === 'bkash' ? 'bKash' : method === 'nagad' ? 'Nagad' : 'Rocket';
+      return res.status(400).json({ ok: false, error: `${label} number not added yet — send via bKash for now` });
+    }
     if (!validTrx(trxId)) {
       return res.status(400).json({ ok: false, error: 'Wrong TrxID — it must be 8–12 letters or digits' });
     }
@@ -480,6 +493,28 @@ app.post('/api/withdraw', auth, async (req, res) => {
       "INSERT INTO wallet_tx (profile_id, type, amount, method, account_number, trx_id, note, status, created_at) VALUES (?,?,?,?,?,?,'pending',?)",
       [req.profileId, 'withdraw', -amt, method || 'bkash', accountNumber || '', '', 'Withdraw request', new Date().toISOString()]);
     res.json({ ok: true, id });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+
+// ---- transfer: Winning Balance -> Deposit Balance (to pay entry fees) ----
+// One-way only: Deposit can never move back to Winning (it cannot be withdrawn).
+app.post('/api/transfer-balance', auth, async (req, res) => {
+  try {
+    const amt = Number((req.body || {}).amount);
+    if (!Number.isInteger(amt) || amt <= 0) {
+      return res.status(400).json({ ok: false, error: 'Enter an amount to transfer' });
+    }
+    const w = await walletFor(req.profileId);
+    if (amt > w.winningBalance) {
+      return res.status(400).json({ ok: false, error: 'Not enough Winning Balance to transfer' });
+    }
+    const now = new Date().toISOString();
+    await db.run("INSERT INTO wallet_tx (profile_id, type, amount, note, status, created_at) VALUES (?, 'transfer_out', ?, 'Transfer: Winning → Deposit', 'approved', ?)",
+      [req.profileId, -amt, now]);
+    await db.run("INSERT INTO wallet_tx (profile_id, type, amount, note, status, created_at) VALUES (?, 'transfer_in', ?, 'Transfer: Winning → Deposit', 'approved', ?)",
+      [req.profileId, amt, now]);
+    const after = await walletFor(req.profileId);
+    res.json({ ok: true, depositBalance: after.depositBalance, winningBalance: after.winningBalance });
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
 
