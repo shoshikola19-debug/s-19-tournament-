@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   lw_passes INTEGER NOT NULL DEFAULT 0,
   all_passes INTEGER NOT NULL DEFAULT 0,
   last_spin_at INTEGER NOT NULL DEFAULT 0,
+  banned INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS tournaments (
@@ -157,6 +158,8 @@ async function init() {
       try { await pgPool.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS ${c} INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
     }
     try { await pgPool.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_spin_at BIGINT NOT NULL DEFAULT 0`); } catch (e) {}
+    // Migration: banned flag for Players (Ban/Unban in the Admin Panel).
+    try { await pgPool.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS banned INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
     // Migration: free pass used on a booking.
     try { await pgPool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS used_pass TEXT NOT NULL DEFAULT ''`); } catch (e) {}
     engine = 'postgres';
@@ -180,6 +183,8 @@ async function init() {
     try { sqliteDb.exec(`ALTER TABLE profiles ADD COLUMN ${c} INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
   }
   try { sqliteDb.exec(`ALTER TABLE profiles ADD COLUMN last_spin_at INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
+  // Migration: banned flag for Players (Ban/Unban in the Admin Panel).
+  try { sqliteDb.exec(`ALTER TABLE profiles ADD COLUMN banned INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
   // Migration: free pass used on a booking.
   try { sqliteDb.exec(`ALTER TABLE bookings ADD COLUMN used_pass TEXT NOT NULL DEFAULT ''`); } catch (e) {}
   engine = 'sqlite';
