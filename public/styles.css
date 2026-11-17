@@ -117,3 +117,53 @@ h3{font-size:16px;margin-bottom:8px}
 .scroll-hint{color:var(--red2);text-align:center;font-weight:700;margin-top:12px;animation:hintBounce 1.2s ease-in-out infinite}
 @keyframes hintBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(4px)}}
 .btn-readall{background:#2a2a2a !important;color:#777 !important;box-shadow:none !important}
+/* ---- app-wide animations (transform/opacity only — light on low-end phones) ---- */
+@keyframes pageIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes cardIn{from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fabFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+.wrap{animation:pageIn .35s ease both}
+.anim-in{animation:cardIn .45s ease both}
+.btn,.btn-ghost,.slot,.tabs button,.subtabs button,.cat-card,.car-dot{transition:transform .12s ease,background .15s ease,box-shadow .15s ease,opacity .15s ease}
+.btn:active,.btn-ghost:active,.slot:active,.tabs button:active,.subtabs button:active,.cat-card:active{transform:scale(.96)}
+.spinner{width:36px;height:36px;margin:0 auto;border:4px solid #2a2a2a;border-top-color:var(--red2);border-radius:50%;animation:spin .8s linear infinite}
+/* banner carousel */
+.banner-carousel{position:relative;margin-top:14px;border-radius:16px;overflow:hidden;border:1px solid #3a1518;background:linear-gradient(135deg,#2a0d0d,#161616)}
+.car-slide{display:none;padding:18px 16px;align-items:center;gap:12px;cursor:pointer;animation:pageIn .4s ease both}
+.car-slide.on{display:flex}
+.car-logo{width:52px;height:52px;border-radius:50%;object-fit:cover;border:2px solid var(--red)}
+.car-ic{font-size:38px}
+.car-slide b{font-size:16px;letter-spacing:1px}
+.car-sub{font-size:12px;color:var(--mut);margin-top:4px;line-height:1.5}
+.car-dots{position:absolute;right:12px;bottom:10px;display:flex;gap:6px}
+.car-dot{width:8px;height:8px;border-radius:50%;border:none;background:#555;padding:0}
+.car-dot.on{background:var(--red2);transform:scale(1.25)}
+/* category cards */
+.cat-cards{display:grid;grid-template-columns:1fr;gap:10px;margin-top:14px}
+.cat-card{background:linear-gradient(135deg,#1c1c1c,#101010);border:1px solid #3a1518;border-radius:16px;padding:16px;text-align:left;color:#fff;display:flex;flex-direction:column;gap:4px}
+.cat-card b{font-size:17px;letter-spacing:1px;color:var(--red2)}
+.cat-card span{font-size:12px;color:var(--mut)}
+.live-badge{align-self:flex-start;background:rgba(34,197,94,.15);color:var(--green);border:1px solid rgba(34,197,94,.4);border-radius:20px;padding:3px 10px;font-size:12px;font-weight:700;margin-top:6px}
+/* floating chat button */
+.chat-fab{position:fixed;right:16px;bottom:86px;z-index:30;width:54px;height:54px;border-radius:50%;border:none;background:linear-gradient(180deg,var(--red2),var(--red));color:#fff;font-size:24px;box-shadow:0 6px 20px rgba(229,9,20,.55);animation:fabFloat 2.4s ease-in-out infinite}
+.chat-fab:active{transform:scale(.92)}
+/* topbar bell + id chip */
+.bell-btn{position:relative;background:#1e1e1e;border:1px solid var(--line);color:#fff;border-radius:50%;width:36px;height:36px;font-size:17px;flex:0 0 auto}
+.bell-count{position:absolute;top:-6px;right:-6px;background:var(--red2);color:#fff;font-size:11px;font-weight:800;min-width:18px;height:18px;border-radius:10px;display:flex;align-items:center;justify-content:center;padding:0 4px}
+.id-chip{background:#1e1e1e;border:1px solid var(--line);border-radius:20px;padding:6px 10px;font-size:11px;font-weight:700;white-space:nowrap}
+/* remember-me / rules checkbox rows */
+.remember{display:flex;gap:8px;align-items:center;margin-top:14px;font-size:14px}
+.remember input{width:auto}
+/* slot picker steps + team boxes */
+.step-dots{display:flex;gap:8px;justify-content:center;margin-top:14px}
+.step-dot{width:30px;height:30px;border-radius:50%;background:#1e1e1e;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;color:var(--mut)}
+.step-dot.on{background:var(--red);border-color:var(--red);color:#fff;box-shadow:0 0 14px rgba(229,9,20,.6)}
+.step-dot.done{background:var(--green);border-color:var(--green);color:#fff}
+.team-box{margin-top:14px;border:1px solid var(--line);border-radius:14px;padding:12px;background:#141414}
+.team-title{font-weight:800;letter-spacing:1px;font-size:13px;color:var(--red2);margin-bottom:4px}
+.team-box .slotgrid{margin-top:8px}
+/* match full */
+.btn-full{background:#2a2a2a !important;color:#888 !important;box-shadow:none !important}
+/* profile 4 tiles */
+.tiles4{grid-template-columns:repeat(2,1fr)}
+@media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
