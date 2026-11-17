@@ -601,43 +601,152 @@ async function loadLeaderboard() {
 
 // ---------- wallet ----------
 function walletHTML() {
-  const tx = wallet ? wallet.transactions : [];
-  return `${topbarHTML()}<div class="wrap"><h2 style="margin-top:14px">💎 Diamond Topup</h2>
-  <p class="muted">Wallet — Deposit &amp; Winning Balance. Add money to join matches, withdraw your winnings.</p>
-  <div class="card"><div class="kv"><span>💰 Deposit Balance</span><b>৳${wallet ? wallet.depositBalance : 0}</b></div>
-  <div class="kv"><span>🏆 Winning Balance</span><b>৳${wallet ? wallet.winningBalance : 0}</b></div>
-  <div class="kv"><span>Total topped up</span><b>৳${wallet ? wallet.topupTotal : 0}</b></div></div>
-  <div style="display:flex;gap:10px;margin-top:14px"><button class="btn" onclick="openDeposit()">+ Add Money</button><button class="btn-ghost" onclick="openWithdraw()">Withdraw</button></div>
-  <h3 style="margin-top:20px">Transactions</h3>
-  ${tx.length ? tx.map((x) => `<div class="card"><div class="kv"><span>${esc(x.type)} · ${esc(x.method || '')} ${esc(x.trx_id || '')}</span><b>৳${x.amount} · ${esc(x.status)}</b></div><div class="muted">${esc(x.note || '')} · ${esc(x.created_at.slice(0, 10))}</div></div>`).join('')
-    : '<div class="card center muted">No transactions yet.</div>'}
+  const dep = wallet ? wallet.depositBalance : 0;
+  const win = wallet ? wallet.winningBalance : 0;
+  const row = (ic, title, sub, act) => `<button class="menu-row" onclick="${act}">
+    <span class="menu-ic">${ic}</span>
+    <span class="menu-tx"><b>${title}</b><span>${sub}</span></span>
+    <span class="menu-arrow">›</span></button>`;
+  return `${topbarHTML()}<div class="wrap">
+  <div class="wallet-hero">
+    <div class="wallet-hero-top"><span>💰 S_19 TOURNAMENT</span><b>WALLET</b></div>
+    <div class="wallet-hero-bal"><span>Available Balance</span><b>৳${dep + win}</b></div>
+  </div>
+  <div class="wallet-tiles">
+    <div class="wallet-tile"><span class="wt-ic">💰</span><span>DEPOSITED</span><b>৳${dep}</b></div>
+    <div class="wallet-tile"><span class="wt-ic">🏆</span><span>WINNING</span><b>৳${win}</b></div>
+  </div>
+  <div class="wallet-actions">
+    <button class="wallet-btn wallet-btn-blue" onclick="openDeposit()">+<span>Add Money</span></button>
+    <button class="wallet-btn wallet-btn-green" onclick="openWithdraw()">↑<span>Withdraw</span></button>
+  </div>
+  <button class="wallet-btn wallet-btn-purple" onclick="openTransfer()">⇄<span>Transfer Balance</span></button>
+  <div class="menu-list">
+    ${row('📋', 'Transaction History', 'View all your transactions', 'openTxHistory()')}
+    ${row('❓', 'How to add money?', 'Learn how to deposit money to your wallet', 'openHowToAddMoney()')}
+    ${row('🎮', 'How to join a match?', 'Learn how to join ongoing matches', 'openTutorial()')}
+    ${row('🚪', 'How to withdraw?', 'Learn how to withdraw your winnings', 'openHowToWithdraw()')}
+  </div>
   </div>${bottomnavHTML()}`;
 }
-window.openDeposit = () => {
-  openModal(`<h2>Add Money</h2>
-  <p class="muted">Step 1 — pick an amount</p>
-  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-    ${[100, 200, 500, 1000].map((a) => `<button class="btn-ghost btn-sm" onclick="depAmount=${a};$('#dep-amt').value=${a}">${a}</button>`).join('')}
+window.openTxHistory = () => {
+  const tx = wallet ? wallet.transactions : [];
+  openModal(`<h2>Transaction History</h2>
+  ${tx.length ? tx.map((x) => `<div class="card"><div class="kv"><span>${esc(x.type)} · ${esc(x.method || '')} ${esc(x.trx_id || '')}</span><b>৳${x.amount} · ${esc(x.status)}</b></div><div class="muted">${esc(x.note || '')} · ${esc(x.created_at.slice(0, 10))}</div></div>`).join('')
+    : '<div class="card center muted">No transactions yet.</div>'}
+  <button class="btn" style="margin-top:14px" onclick="closeModal()">Close</button>`);
+};
+window.openHowToAddMoney = () => openModal(`<h2>How to add money?</h2>
+  <ol class="rulelist">
+    <li>Tap <b>+ Add Money</b> in your Wallet.</li>
+    <li>Pick <b>BKASH &amp; NAGAD</b> or <b>Rocket</b> and enter an amount (৳10 – ৳1000).</li>
+    <li>Tap <b>Proceed to Payment</b> — you will see the owner's number.</li>
+    <li>Send Money from your bKash / Nagad / Rocket app to that number.</li>
+    <li>Paste your <b>sender number</b> and the <b>TrxID</b>, then tap <b>Verify</b>.</li>
+    <li>Your request stays <b>pending</b> until the owner approves it — then the money appears in your Deposit Balance.</li>
+  </ol><button class="btn" style="margin-top:14px" onclick="closeModal()">Got it</button>`);
+window.openHowToWithdraw = () => openModal(`<h2>How to withdraw?</h2>
+  <ol class="rulelist">
+    <li>Only your <b>Winning Balance</b> can be withdrawn — Deposit Balance cannot.</li>
+    <li>Minimum withdrawal is <b>৳100</b>, open 10:00 AM – 9:30 PM Dhaka time.</li>
+    <li>Tap <b>Withdraw</b>, enter the amount and your bKash / Nagad / Rocket number, then send the request.</li>
+    <li>The owner approves it and sends the money to your number.</li>
+  </ol><button class="btn" style="margin-top:14px" onclick="closeModal()">Got it</button>`);
+// Transfer Balance: Winning -> Deposit only (Deposit can never go back).
+window.openTransfer = () => {
+  openModal(`<h2>Transfer Balance</h2>
+  <p class="muted" style="margin-top:8px;line-height:1.6">Move money from your <b>Winning Balance</b> to your <b>Deposit Balance</b> so you can pay entry fees. Deposit Balance can never be moved back or withdrawn.</p>
+  <div class="card"><div class="kv"><span>🏆 Winning Balance</span><b>৳${wallet ? wallet.winningBalance : 0}</b></div>
+  <div class="kv"><span>💰 Deposit Balance</span><b>৳${wallet ? wallet.depositBalance : 0}</b></div></div>
+  <div class="field"><label>Amount to transfer (৳)</label><input id="tr-amt" type="number" placeholder="e.g. 100"></div>
+  <div id="tr-err"></div>
+  <button class="btn" style="margin-top:14px" onclick="doTransfer()">Transfer to Deposit</button>`);
+};
+window.doTransfer = async () => {
+  const amt = Number($('#tr-amt').value);
+  try {
+    await api('/api/transfer-balance', { method: 'POST', body: JSON.stringify({ amount: amt }) });
+    await loadMe(); closeModal(); render(); toast(`৳${amt} moved to Deposit Balance`);
+  } catch (e) { const el = $('#tr-err'); if (el) el.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+};
+window.openDeposit = async () => {
+  const info = await api('/api/payment-info').catch(() => ({ bkashNumber: '', nagadNumber: '', rocketNumber: '' }));
+  window.depInfo = info;
+  window.depGateway = 'mfs'; // 'mfs' = BKASH & NAGAD, 'rocket' = Rocket
+  window.depMethod = 'bkash';
+  openModal(`<div class="addmoney-hero"><div class="addmoney-ic">💼</div>
+    <h2>Add Money</h2>
+    <p class="muted">Enter amount to add to your wallet</p></div>
+  <div class="dep-note"><span class="dep-note-ic">ⓘ</span><p>You can deposit a minimum of 10 Taka and a maximum of 1000 Taka. If you send less money, it will not be added, and the money will not be refunded. Send the amount of money you write when sending money.</p></div>
+  <h3 style="margin-top:18px">Payment Gateway</h3>
+  <div class="gw-pills">
+    <button class="gw-pill on" id="gw-mfs" onclick="depPickGateway('mfs')">✓ BKASH &amp; NAGAD</button>
+    <button class="gw-pill" id="gw-rocket" onclick="depPickGateway('rocket')">○ Rocket</button>
   </div>
-  <div class="field"><label>Amount (৳)</label><input id="dep-amt" type="number" value="100"></div>
-  <div class="field"><label>Method</label><select id="dep-method"><option value="bkash">bKash</option><option value="nagad">Nagad</option><option value="rocket">Rocket</option></select></div>
-  <div id="dep-pay"></div>
-  <button class="btn" style="margin-top:14px" onclick="depStep2()">Next — Send Money</button>`);
-  window.depAmount = 100;
+  <div class="gw-sub" id="gw-sub">
+    <button class="gw-pill sm on" id="gw-bkash" onclick="depPickMethod('bkash')">bKash</button>
+    <button class="gw-pill sm" id="gw-nagad" onclick="depPickMethod('nagad')">Nagad</button>
+  </div>
+  <h3 style="margin-top:18px">Enter Amount</h3>
+  <div class="amt-box"><span>৳</span><input id="dep-amt" type="number" inputmode="numeric" placeholder="10 - 1000" oninput="depCheck()"></div>
+  <div id="dep-err"></div>
+  <button class="btn btn-proceed" id="dep-proceed" style="margin-top:18px" disabled onclick="depStep2()">Proceed to Payment</button>`);
+  depCheck();
+};
+window.depPickGateway = (g) => {
+  window.depGateway = g;
+  const mfs = $('#gw-mfs'), rk = $('#gw-rocket'), sub = $('#gw-sub');
+  if (mfs) { mfs.classList.toggle('on', g === 'mfs'); mfs.innerHTML = (g === 'mfs' ? '✓ ' : '○ ') + 'BKASH &amp; NAGAD'; }
+  if (rk) { rk.classList.toggle('on', g === 'rocket'); rk.innerHTML = (g === 'rocket' ? '✓ ' : '○ ') + 'Rocket'; }
+  if (sub) sub.style.display = g === 'mfs' ? 'flex' : 'none';
+  if (g === 'rocket') window.depMethod = 'rocket';
+  else if (window.depMethod === 'rocket') window.depMethod = 'bkash';
+  depCheck();
+};
+window.depPickMethod = (m) => {
+  window.depMethod = m;
+  const b = $('#gw-bkash'), n = $('#gw-nagad');
+  if (b) b.classList.toggle('on', m === 'bkash');
+  if (n) n.classList.toggle('on', m === 'nagad');
+  depCheck();
+};
+window.depCheck = () => {
+  const btn = $('#dep-proceed');
+  if (!btn) return;
+  const raw = $('#dep-amt') ? $('#dep-amt').value : '';
+  const amt = Number(raw);
+  const info = window.depInfo || {};
+  const num = window.depMethod === 'bkash' ? info.bkashNumber : window.depMethod === 'nagad' ? info.nagadNumber : info.rocketNumber;
+  const err = $('#dep-err');
+  let msg = '';
+  if (!num) {
+    const name = window.depMethod === 'nagad' ? 'Nagad' : window.depMethod === 'rocket' ? 'Rocket' : 'bKash';
+    msg = name + ' number not added yet — send via bKash for now.' + (window.depMethod === 'nagad' ? ' Nagad number will be added later.' : '');
+  } else if (raw && (!Number.isInteger(amt) || amt < 10 || amt > 1000)) {
+    msg = 'Amount must be ৳10 – ৳1000';
+  }
+  if (err) err.innerHTML = msg ? `<div class="err">${esc(msg)}</div>` : '';
+  btn.disabled = !!msg || !amt;
 };
 window.depStep2 = async () => {
   const amt = Number($('#dep-amt').value);
-  const method = $('#dep-method').value;
-  const info = await api('/api/payment-info');
+  const method = window.depMethod || 'bkash';
+  if (!Number.isInteger(amt) || amt < 10 || amt > 1000) { const el = $('#dep-err'); if (el) el.innerHTML = '<div class="err">Amount must be ৳10 – ৳1000</div>'; return; }
+  const info = window.depInfo || (await api('/api/payment-info'));
   const num = method === 'bkash' ? info.bkashNumber : method === 'nagad' ? info.nagadNumber : info.rocketNumber;
-  $('#dep-pay').innerHTML = `<div class="card"><b>Send ৳${amt} to this ${method} number:</b>
-    <div style="font-size:22px;font-weight:800;margin:8px 0">${esc(num || 'Not set yet')}</div>
+  if (!num) {
+    openModal(`<h2>Add Money</h2><div class="err" style="margin-top:14px">${method === 'nagad' ? 'Nagad number not added yet — send via bKash for now. Nagad number will be added later.' : 'Rocket number not added yet — send via bKash for now.'}</div><button class="btn" style="margin-top:14px" onclick="closeModal()">OK</button>`);
+    return;
+  }
+  openModal(`<h2>Send Money — ${method === 'bkash' ? 'bKash' : method === 'nagad' ? 'Nagad' : 'Rocket'}</h2>
+  <div class="card"><b>Send ৳${amt} to this ${method} number:</b>
+    <div style="font-size:22px;font-weight:800;margin:8px 0">${esc(num)}</div>
     <button class="btn-ghost btn-sm" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(num)}');toast('Number copied')">Copy number</button>
     <p class="muted" style="margin-top:8px">Send Money from your ${method} app, then paste the TrxID below.</p></div>
   <div class="field"><label>Your sender number</label><input id="dep-sender" placeholder="01XXXXXXXXX"></div>
   <div class="field"><label>TrxID (8–12 letters/digits)</label><input id="dep-trx" placeholder="e.g. 9HX7K2LM1P"></div>
-  <div id="dep-err"></div>`;
-  document.querySelector('.sheet .btn').outerHTML = `<button class="btn" style="margin-top:14px" onclick="depVerify('${method}',${amt})">Verify</button>`;
+  <div id="dep-err"></div>
+  <button class="btn" style="margin-top:14px" onclick="depVerify('${method}',${amt})">Verify</button>`);
 };
 window.depVerify = async (method, amt) => {
   try {
