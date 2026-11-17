@@ -5,7 +5,15 @@ const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
 const app = $('#app');
 const modalRoot = $('#modal-root');
 let lang = localStorage.getItem('s19lang') || 'en';
-let token = localStorage.getItem('s19token') || '';
+let token = localStorage.getItem('s19token') || sessionStorage.getItem('s19token') || '';
+let resultTab = 'all';
+let bannerTimer = null, bannerIdx = 0;
+function saveToken(tk, remember) {
+  token = tk;
+  if (remember) { localStorage.setItem('s19token', tk); sessionStorage.removeItem('s19token'); }
+  else { sessionStorage.setItem('s19token', tk); localStorage.removeItem('s19token'); }
+}
+function clearToken() { token = ''; localStorage.removeItem('s19token'); sessionStorage.removeItem('s19token'); }
 let profile = null, wallet = null, tournaments = [], adminTournaments = [];
 let view = 'landing', category = 'br', subcategory = 'Solo', myFilter = 'all';
 let selectedMatch = null, selectedSlot = 0;
@@ -84,6 +92,34 @@ function openModal(html) {
 }
 function closeModal() { modalRoot.innerHTML = ''; }
 window.closeModal = closeModal;
+window.openSupport = () => openModal(`<h2>🎧 Customer Support</h2>
+  <p style="line-height:1.7;margin-top:10px">Our support team is available <b>24/7</b>. For any match problem — slot, room ID/password, refund or reward — contact the admin and mention your <b>S_19 ID</b> and match number.</p>
+  <div class="card"><b>Before you write</b><p class="muted">Keep your screen recording ready — from room entry until the match starts. Without video proof, no refund or reward can be given.</p></div>
+  <button class="btn" style="margin-top:14px" onclick="closeModal();showNotice(1)">📜 Read All Rules</button>
+  <button class="btn-ghost" style="margin-top:8px" onclick="closeModal();view='mymatches';render()">📋 My Matches</button>`);
+window.openTutorial = () => openModal(`<h2>▶ Tutorial — How to Join a Match</h2>
+  <ol class="rulelist">
+    <li><b>Register</b> with your username, email, phone and password, then add your exact Free Fire in-game name and UID in Edit Profile.</li>
+    <li><b>Add Money</b> from Wallet — send to the owner's bKash / Nagad / Rocket number, paste the TrxID, and wait for owner approval.</li>
+    <li><b>Pick a match</b> from BR, CS or LW, then tap <b>Join Now</b>.</li>
+    <li><b>Pick a free slot</b> — taken slots are crossed out. Then enter your exact in-game name.</li>
+    <li><b>Tick the rules box</b> and tap <b>I Agree and Confirm</b>. The entry fee is charged from your Deposit Balance.</li>
+    <li><b>Wait for approval</b> — check My Matches. Room ID &amp; Password appear in Room Details <b>5 minutes before</b> the match starts.</li>
+    <li><b>Enter the room</b> from Observer to your own slot, and keep screen recording on until the match starts.</li>
+  </ol>
+  <button class="btn" style="margin-top:14px" onclick="closeModal()">Got it</button>`);
+window.bannerGo = (i) => {
+  bannerIdx = i;
+  $$('.car-slide').forEach((s, j) => s.classList.toggle('on', j === i));
+  $$('.car-dot').forEach((d, j) => d.classList.toggle('on', j === i));
+};
+function startBanner() {
+  clearInterval(bannerTimer);
+  bannerIdx = 0; bannerGo(0);
+  bannerTimer = setInterval(() => { const n = $$('.car-slide').length || 2; bannerGo((bannerIdx + 1) % n); }, 4000);
+}
+function stopBanner() { clearInterval(bannerTimer); }
+window.goCategory = (c) => { category = c; subcategory = SUBS[c][0]; render(); };
 
 // ---------- landing ----------
 function landingHTML() {
@@ -154,7 +190,7 @@ window.showPolicy = (kind) => {
 // ---------- auth ----------
 function authHTML() {
   const isLogin = view === 'login';
-  return `<div class="wrap"><div class="hero">
+  return `<div class="wrap" style="position:relative"><div class="lang-toggle"><button class="${lang === 'en' ? 'on' : ''}" onclick="setLang('en')">EN</button><button class="${lang === 'bn' ? 'on' : ''}" onclick="setLang('bn')">বাং</button></div><div class="hero">
     <img class="logo" src="/logo.webp" alt="logo" onerror="this.src='/icon-512.png'">
     <h1>${isLogin ? 'Welcome Back' : 'Create Account'}</h1>
     <p class="muted">${isLogin ? 'Login to your S_19 Tournament account' : 'Join S_19 Tournament and start playing'}</p></div>
@@ -164,8 +200,11 @@ function authHTML() {
     ${isLogin ? '' : `<div class="field"><label>Phone (+88)</label><input id="f-phone" placeholder="+8801XXXXXXXXX"></div>`}
     <div class="field"><label>Password</label><input id="f-password" type="password" placeholder="••••••••"></div>
     ${isLogin ? '' : `<div class="field"><label>Confirm Password</label><input id="f-password2" type="password" placeholder="••••••••"></div>`}
+    ${isLogin ? `<label class="remember"><input type="checkbox" id="f-remember" checked> Remember Me</label>` : `<label class="remember"><input type="checkbox" id="f-rules"> I agree to the tournament rules — <a href="#" onclick="showNotice(1);return false">read rules</a></label>`}
     <div id="auth-err"></div>
     <button class="btn" style="margin-top:16px" onclick="${isLogin ? 'doLogin()' : 'doRegister()'}">${isLogin ? 'Login' : 'Register'}</button>
+    ${isLogin ? `<p class="center" style="margin-top:12px"><a href="#" onclick="openForgot();return false">Forgot Password?</a></p>` : ''}
+    <p class="center muted" style="margin-top:18px;letter-spacing:2px;font-size:11px">VERSION 1.0.0</p>
     <p class="center muted" style="margin-top:14px">${isLogin ? "Don't have an account? " : 'Already have an account? '}
       <a href="#" onclick="view='${isLogin ? 'register' : 'login'}';render();return false">${isLogin ? 'Sign Up' : 'Login'}</a></p>
     <p class="center"><a href="#" onclick="view='landing';render();return false">← Back to home</a></p>
@@ -174,18 +213,36 @@ function authHTML() {
 window.doLogin = async () => {
   try {
     const d = await api('/api/login', { method: 'POST', body: JSON.stringify({ emailOrUsername: $('#f-email').value.trim(), password: $('#f-password').value }) });
-    token = d.token; localStorage.setItem('s19token', token);
+    saveToken(d.token, $('#f-remember') ? $('#f-remember').checked : true);
     await loadMe(); showNotice();
   } catch (e) { $('#auth-err').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 };
 window.doRegister = async () => {
+  if (!$('#f-rules').checked) { $('#auth-err').innerHTML = '<div class="err">Tick the rules box to register</div>'; return; }
   const pw = $('#f-password').value, pw2 = $('#f-password2').value;
   if (pw !== pw2) { $('#auth-err').innerHTML = '<div class="err">Passwords do not match</div>'; return; }
   try {
     const d = await api('/api/register', { method: 'POST', body: JSON.stringify({ username: $('#f-username').value.trim(), email: $('#f-email').value.trim(), phone: $('#f-phone').value.trim(), password: pw }) });
-    token = d.token; localStorage.setItem('s19token', token);
+    saveToken(d.token, true);
     await loadMe(); showNotice();
   } catch (e) { $('#auth-err').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+};
+window.openForgot = () => {
+  openModal(`<h2>Forgot Password</h2>
+  <p class="muted">Enter your account email and a new password. Your old password will stop working right away.</p>
+  <div class="field"><label>Email</label><input id="fp-email" type="email" placeholder="you@example.com"></div>
+  <div class="field"><label>New password (4+ characters)</label><input id="fp-pw" type="password" placeholder="••••••••"></div>
+  <div class="field"><label>Confirm new password</label><input id="fp-pw2" type="password" placeholder="••••••••"></div>
+  <div id="fp-err"></div>
+  <button class="btn" style="margin-top:14px" onclick="doForgot()">Reset Password</button>`);
+};
+window.doForgot = async () => {
+  const pw = $('#fp-pw').value, pw2 = $('#fp-pw2').value;
+  if (pw !== pw2) { $('#fp-err').innerHTML = '<div class="err">Passwords do not match</div>'; return; }
+  try {
+    await api('/api/forgot-password', { method: 'POST', body: JSON.stringify({ email: $('#fp-email').value.trim(), newPassword: pw }) });
+    closeModal(); toast('Password reset — login with your new password');
+  } catch (e) { $('#fp-err').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 };
 const LW1V1_SHORT = [
   'সন্দেহজনক ইউজারকে কোনো নোটিশ ছাড়াই BAN করা হবে।',
@@ -248,17 +305,22 @@ const SUBS = { br: ['Solo', 'Duo', 'Esports PRO'], cs: ['4v4', '1v1', 'Headshot 
 const LW1V1_RULES = ['সন্দেহজনক User কে কোনো নোটিশ ছাড়াই BAN করা হবে।', 'ম্যাচে অ্যাডমিন পান দেওয়া থেকে শুরু করে ম্যাচ স্টার্ট হওয়া পর্যন্ত ভিডিও করা লাগবে এবং অ্যাডমিন যদি ভিডিও চায় দেখাতে হবে।', 'জয়েন করার সময় আপনার নাম দিয়ে জয়েন করলে কিক দেওয়া হবে, কোনো প্রকার রিফান্ড এবং Winning Reward দেওয়া হবে না।', '৫০ লেভেলের কম Free Fire আইডি দিয়ে ম্যাচ জয়েন করলে, ম্যাচ থেকে কিক দেওয়া হলে কোনো প্রকার REFUND দেওয়া হবে না।', 'ম্যাচ জয়েন করার পর কোনো ধরনের রিফান্ড করা হবে না।', 'কোনো প্লেয়ার অন্য অ্যাপ থেকে ব্যান থাকলে আমাদের অ্যাপ থেকেও ব্যান করা হবে।', 'ম্যাচ সময়ের ৪/৫ মিনিট আগে Room-এ ঢুকতে হবে, ID ও Password পেয়ে যাবেন।', 'ম্যাচ শুরু হওয়ার ২/৩ মিনিট আগে কাস্টম জয়েন করতে না পারলে কোনো প্রকার Refund পাবেন না।', 'আমাদের অ্যাপে Notification-এ Room ID ও Password দেওয়া হয় না।', 'ম্যাচে রেকর্ড ভিডিও এবং Screenshot দিতে না পারলে সে ম্যাচে কোনো প্রকার Refund অথবা Reward দেওয়া হবে না।', 'ম্যাচ জিতলে কোনো সমস্যা হলে ম্যাচ শেষ হওয়ার সর্বোচ্চ ৫/১০ মিনিটের মধ্যে জানাতে হবে।', '১ভি১ ম্যাচে জয়েন করার পর আর কোনো Refund-এর ব্যবস্থা নেই।', '১ভি১ ম্যাচে কোনো ধরনের Teaming, ইমোট ব্যবহার, লাফালাফি, Zone অথবা Bomb মেরে নিজে মারা যাওয়া সম্পূর্ণ নিষিদ্ধ। এমনটি করলে Entry Fee বাজেয়াপ্ত করা হবে এবং ম্যাচটি বাতিল করা হবে।', '১ভি১ ম্যাচে শুধুমাত্র নির্ধারিত দুইজন প্লেয়ার খেলবে। অন্য কোনো প্লেয়ার অংশগ্রহণ করতে পারবে না।', 'ম্যাচ "WINNINGS"-এর টাকা ম্যাচ শেষ হওয়ার ৩০ মিনিটের মধ্যে Account-এ Add দেওয়া হবে।', 'যেকোনো সমস্যা বা সহযোগিতার ক্ষেত্রে আমাদের SUPPORT-এ যোগাযোগ করতে হবে।', '🔴 "S_19 TOURNAMENT ADMIN"-এর সিদ্ধান্তই চূড়ান্ত সিদ্ধান্ত 🔴'];
 
 function topbarHTML() {
+  const upcomingMine = tournaments.filter((m) => (m.status === 'upcoming' || m.status === 'live') && m.bookings.some((b) => profile && b.profile_id === profile.id && (b.status === 'pending' || b.status === 'approved'))).length;
   return `<div class="topbar"><img class="logo-sm" src="/logo.webp" onerror="this.src='/icon-192.png'">
   <div><b>S_19 <span class="red">TOURNAMENT</span></b><div class="muted" style="font-size:11px">WELCOME BACK, ${esc(profile ? profile.username.toUpperCase() : 'PLAYER')} ${profile && profile.isAdmin ? '<span class="admin-badge">ADMIN</span>' : ''}</div></div>
-  <div class="sp"></div><span class="chip">৳${wallet ? wallet.depositBalance + wallet.winningBalance : 0}</span></div>`;
+  <div class="sp"></div>
+  ${profile ? `<span class="id-chip">S_19 ID #${profile.accountId}</span>` : ''}
+  <button class="bell-btn" onclick="view='mymatches';render()" aria-label="Notifications">🔔${upcomingMine ? `<span class="bell-count">${upcomingMine}</span>` : ''}</button>
+  <span class="chip">৳${wallet ? wallet.depositBalance + wallet.winningBalance : 0}</span></div>`;
 }
 function bottomnavHTML() {
   const items = [['play', '🎮', 'Play'], ['mymatches', '📋', 'My Matches'], ['results', '🏆', 'Results'], ['wallet', '👛', 'Wallet'], ['profile', '👤', 'Profile']];
-  return `<div class="bottomnav">${items.map(([v, ic, lb]) => `<button class="${view === v ? 'on' : ''}" onclick="view='${v}';render()"><span class="ic">${ic}</span>${lb}</button>`).join('')}</div>`;
+  return `<div class="bottomnav">${items.map(([v, ic, lb]) => `<button class="${view === v ? 'on' : ''}" onclick="view='${v}';render()"><span class="ic">${ic}</span>${lb}</button>`).join('')}</div><button class="chat-fab" onclick="openSupport()" aria-label="Customer Support">💬</button>`;
 }
 function matchCard(m) {
   const taken = m.bookings.filter((b) => b.status === 'pending' || b.status === 'approved').length;
   const pct = Math.round((taken / m.totalSlots) * 100);
+  const full = taken >= m.totalSlots;
   const isLW1v1 = m.category === 'lw' && m.subcategory === '1v1';
   const rulesLine = (m.category === 'br' || m.category === 'lw')
     ? `<p class="rules-line">🚫 ম্যাচে জয়েন করার আগে রুলস পড়ে নেন। রুলস ভঙ্গ করলে রিওয়ার্ড দেওয়া হবে না &amp; রিফান্ড পাবেন না</p>` : '';
@@ -277,7 +339,7 @@ function matchCard(m) {
     </div>
     <div style="display:flex;justify-content:space-between;margin-top:12px;font-size:13px"><span>👥 Registration</span><b>${taken}/${m.totalSlots}</b></div>
     <div class="regbar"><i style="width:${pct}%"></i></div>
-    <button class="btn" style="margin-top:12px" ${m.status !== 'upcoming' ? 'disabled' : ''} onclick="openSlots(${m.id})">🚀 Join Now</button>
+    <button class="btn ${full ? 'btn-full' : ''}" style="margin-top:12px" ${m.status !== 'upcoming' || full ? 'disabled' : ''} onclick="openSlots(${m.id})">${full ? 'Match Full' : '🚀 Join Now'}</button>
     <div class="row3">
       <button class="btn-ghost" onclick="openSlots(${m.id})">👥 Slots</button>
       <button class="btn-ghost" onclick="openRoom(${m.id})">🚪 Room</button>
@@ -289,14 +351,29 @@ function matchCard(m) {
 function playHTML() {
   const list = tournaments.filter((m) => m.category === category && m.subcategory === subcategory);
   return `${topbarHTML()}<div class="wrap">
-  <div class="card center" style="background:linear-gradient(135deg,#2a0d0d,#161616)">📢 <b>Need any Help? Customer Support</b><br><span class="muted">Tap Profile → Support, or message the admin.</span></div>
+  <div class="banner-carousel">
+    <div class="car-slide on" onclick="goCategory('br')">
+      <img class="car-logo" src="/logo.webp" onerror="this.src='/icon-512.png'">
+      <div><b>S_19 TOURNAMENT</b><div class="car-sub">PLAY WIN ENJOY — Daily BR • CS • Lone Wolf matches. Win real Taka prizes!</div></div>
+    </div>
+    <div class="car-slide" onclick="openSupport()">
+      <div class="car-ic">🎧</div>
+      <div><b>Need any Help?</b><div class="car-sub">Customer Support 24/7 — tap here to contact the admin.</div></div>
+    </div>
+    <div class="car-dots"><button class="car-dot on" onclick="bannerGo(0)" aria-label="Slide 1"></button><button class="car-dot" onclick="bannerGo(1)" aria-label="Slide 2"></button></div>
+  </div>
+  <div class="card center help-card" style="background:linear-gradient(135deg,#2a0d0d,#161616)">📢 <b>Need any Help? Customer Support</b><br><span class="muted">Support is available 24/7 for any match problem.</span><button class="btn" style="margin-top:10px" onclick="openSupport()">📞 Contact Support</button></div>
+  <div class="cat-cards">
+    ${[['br', 'BR MATCHES', 'Solo • Duo • Esports PRO'], ['cs', 'CS MATCHES', '4v4 • 1v1 • Headshot Only'], ['lw', 'LW MATCHES', '1v1 • 2v2 • Lose To Win • Headshot Only']].map(([c, lb, sub]) => { const n = tournaments.filter((m) => m.category === c && m.status === 'upcoming').length; return `<button class="cat-card" onclick="goCategory('${c}')"><b>${lb}</b><span>${sub}</span><span class="live-badge">● ${n} Live</span></button>`; }).join('')}
+  </div>
   <div class="tabs">
     <button class="${category === 'br' ? 'on' : ''}" onclick="category='br';subcategory='Solo';render()">BR MATCHES (${tournaments.filter((m) => m.category === 'br').length})</button>
     <button class="${category === 'cs' ? 'on' : ''}" onclick="category='cs';subcategory='4v4';render()">CS MATCHES (${tournaments.filter((m) => m.category === 'cs').length})</button>
     <button class="${category === 'lw' ? 'on' : ''}" onclick="category='lw';subcategory='1v1';render()">LW MATCHES (${tournaments.filter((m) => m.category === 'lw').length})</button>
   </div>
   <div class="subtabs">${SUBS[category].map((s) => `<button class="${subcategory === s ? 'on' : ''}" onclick="subcategory='${s}';render()">${s}</button>`).join('')}</div>
-  ${list.length ? list.map(matchCard).join('') : '<div class="card center muted">No matches in this list yet.</div>'}
+  <button class="btn-ghost" style="margin-top:12px" onclick="openTutorial()">▶ Tutorial — How to Join</button>
+  ${list.length ? list.map((m, i) => `<div class="anim-in" style="animation-delay:${i * 70}ms">${matchCard(m)}</div>`).join('') : '<div class="card center muted">No matches in this list yet.</div>'}
   </div>${bottomnavHTML()}`;
 }
 window.showLW1v1Rules = (id) => {
@@ -340,14 +417,18 @@ window.openSlots = (id) => {
   selectedSlot = 0;
   const taken = new Set(selectedMatch.bookings.filter((b) => b.status === 'pending' || b.status === 'approved').map((b) => b.slot_number));
   const myBooking = selectedMatch.bookings.find((b) => profile && b.profile_id === profile.id && (b.status === 'pending' || b.status === 'approved'));
-  const grid = Array.from({ length: selectedMatch.totalSlots }, (_, i) => {
-    const n = i + 1;
-    return `<button class="slot ${taken.has(n) ? 'taken' : ''}" ${taken.has(n) ? 'disabled' : ''} onclick="selectSlot(${n},this)">${n}</button>`;
-  }).join('');
+  const slotBtn = (n) => `<button class="slot ${taken.has(n) ? 'taken' : ''}" ${taken.has(n) ? 'disabled' : ''} onclick="selectSlot(${n},this)">${n}</button>`;
+  const teamOf = (label, nums) => `<div class="team-box"><div class="team-title">${label}</div><div class="slotgrid">${nums.map(slotBtn).join('')}</div></div>`;
+  const isTeam = (selectedMatch.category === 'cs' && (selectedMatch.subcategory === '4v4' || selectedMatch.subcategory === 'Headshot Only')) || (selectedMatch.category === 'lw' && selectedMatch.subcategory === '2v2');
+  const perTeam = selectedMatch.category === 'lw' ? 2 : 4;
+  const grid = isTeam
+    ? teamOf('Team 1', Array.from({ length: perTeam }, (_, i) => i + 1)) + teamOf('Team 2', Array.from({ length: perTeam }, (_, i) => perTeam + i + 1))
+    : `<div class="slotgrid">${Array.from({ length: selectedMatch.totalSlots }, (_, i) => slotBtn(i + 1)).join('')}</div>`;
   openModal(`<h2>Select a Slot</h2>
+  <div class="step-dots"><span class="step-dot on">1</span><span class="step-dot">2</span><span class="step-dot">3</span><span class="step-dot">4</span></div>
   <p class="muted center">Step 1 — pick a free slot · Step 2 — enter your in-game name · Step 3 — agree to the rules · Step 4 — confirm</p>
   ${myBooking ? `<div class="okmsg">You already booked slot ${myBooking.slot_number} (${myBooking.status}).</div>` : ''}
-  <div class="slotgrid">${grid}</div>
+  ${grid}
   <div id="slot-err"></div>
   <button class="btn" style="margin-top:16px" onclick="proceedJoin()">PROCEED</button>`);
 };
@@ -359,6 +440,7 @@ window.selectSlot = (n, el) => {
 window.proceedJoin = () => {
   if (!selectedSlot) { $('#slot-err').innerHTML = '<div class="err">Pick a slot first</div>'; return; }
   openModal(`<h2>Enter Player Name</h2>
+  <div class="step-dots"><span class="step-dot done">1</span><span class="step-dot on">2</span><span class="step-dot">3</span><span class="step-dot">4</span></div>
   <p class="muted">Join only with your own registered in-game name. Only the registered player may play — inviting an unregistered player means a permanent ban.</p>
   <div class="field"><label>Player Name (exact in-game name)</label><input id="f-playername" value="${esc(profile ? profile.ign : '')}"></div>
   <label style="display:flex;gap:8px;margin-top:14px;font-size:14px"><input type="checkbox" id="f-agree" style="width:auto"> I have read the match rules</label>
@@ -394,12 +476,19 @@ window.cancelBooking = async (id) => {
   catch (e) { toast(e.message); }
 };
 function resultsHTML() {
-  const rows = [];
-  tournaments.forEach((m) => m.results.forEach((r) => rows.push({ m, r })));
+  const allRows = [];
+  tournaments.forEach((m) => m.results.forEach((r) => allRows.push({ m, r })));
+  const tabs = [['all', 'All'], ['br-solo', 'BR Solo'], ['br-duo', 'BR Duo'], ['br-pro', 'BR E-Sports PRO'], ['cs', 'CS'], ['lw', 'LW']];
+  const rows = allRows.filter(({ m }) => resultTab === 'all' ? true
+    : resultTab === 'br-solo' ? (m.category === 'br' && m.subcategory === 'Solo')
+    : resultTab === 'br-duo' ? (m.category === 'br' && m.subcategory === 'Duo')
+    : resultTab === 'br-pro' ? (m.category === 'br' && m.subcategory === 'Esports PRO')
+    : resultTab === 'cs' ? m.category === 'cs' : m.category === 'lw');
   return `${topbarHTML()}<div class="wrap"><h2 style="margin-top:14px">Results</h2>
-  ${rows.length ? rows.map(({ m, r }) => `<div class="card"><b>${esc(m.title)}</b><div class="kv"><span>${esc(r.player_name)}</span><b>#${r.placement} · ${r.kills} kills · ${r.points} pts · ৳${r.prize}</b></div></div>`).join('')
+  <div class="subtabs">${tabs.map(([v, lb]) => `<button class="${resultTab === v ? 'on' : ''}" onclick="resultTab='${v}';render()">${lb}</button>`).join('')}</div>
+  ${rows.length ? rows.map(({ m, r }) => `<div class="card anim-in"><b>${esc(m.title)}</b><div class="kv"><span>${esc(r.player_name)}</span><b>#${r.placement} · ${r.kills} kills · ${r.points} pts · ৳${r.prize}</b></div></div>`).join('')
     : '<div class="card center muted">No results published yet.</div>'}
-  <h2 style="margin-top:20px">Leaderboard</h2><div id="lb"></div></div>${bottomnavHTML()}`;
+  <h2 style="margin-top:20px">Leaderboard</h2><div id="lb"><div class="spinner"></div></div></div>${bottomnavHTML()}`;
 }
 async function loadLeaderboard() {
   try {
@@ -475,11 +564,18 @@ window.doWithdraw = async () => {
 // ---------- profile / admin ----------
 function profileHTML() {
   const played = tournaments.reduce((n, m) => n + m.bookings.filter((b) => profile && b.profile_id === profile.id).length, 0);
+  const wins = tournaments.reduce((n, m) => n + m.results.filter((r) => profile && r.profile_id === profile.id && r.placement === 1).length, 0);
   return `${topbarHTML()}<div class="wrap"><div class="card center">
     <img class="logo" src="/logo.webp" onerror="this.src='/icon-192.png'">
     <h2 style="margin-top:8px">${esc(profile ? profile.username : '')}</h2>
     <p class="muted">S_19 ID #${profile ? profile.accountId : ''} · IGN ${esc(profile ? profile.ign : '')} · UID ${esc(profile ? profile.uid : '—')}</p>
-    <p style="margin-top:8px">Total Matches: <b>${played}</b> · Wallet: <b>৳${wallet ? wallet.depositBalance + wallet.winningBalance : 0}</b></p></div>
+    <p style="margin-top:8px">S_19 ID #${profile ? profile.accountId : ''}</p></div>
+  <div class="tiles tiles4" style="margin-top:14px">
+    <div class="tile"><span>DEPOSIT BALANCE</span><b>৳${wallet ? wallet.depositBalance : 0}</b></div>
+    <div class="tile"><span>WINNING BALANCE</span><b class="gold">৳${wallet ? wallet.winningBalance : 0}</b></div>
+    <div class="tile"><span>TOTAL MATCHES</span><b>${played}</b></div>
+    <div class="tile"><span>TOTAL WON</span><b class="green">${wins}</b></div>
+  </div>
   <div class="card">
     <button class="btn-ghost" style="margin-top:8px" onclick="editProfile()">✏️ Edit Profile (IGN / UID)</button>
     <button class="btn-ghost" style="margin-top:8px" onclick="dailySpin()">🎡 Daily Spin ${profile && profile.spunToday ? '(done today)' : ''}</button>
@@ -506,7 +602,7 @@ window.dailySpin = async () => {
   catch (e) { toast(e.message); }
 };
 window.devProfile = () => openModal(`<h2>Developer Profile</h2><div class="card center"><img class="logo" src="/logo.webp" onerror="this.src='/icon-512.png'"><p style="margin-top:10px"><b>S_19</b></p><p class="muted">Voice of Bijoy · S_19 Tournament · S_19 CHAT BOOK · BR 19</p></div><button class="btn" style="margin-top:14px" onclick="closeModal()">Close</button>`);
-window.logout = () => { token = ''; localStorage.removeItem('s19token'); profile = null; wallet = null; view = 'landing'; render(); };
+window.logout = () => { clearToken(); profile = null; wallet = null; view = 'landing'; render(); };
 
 async function adminHTML() {
   const d = await api('/api/tournaments/admin');
@@ -614,6 +710,7 @@ function hideSplash() {
 function noticeSeen() { try { return sessionStorage.getItem('s19noticeSeen') === '1'; } catch (e) { return false; } }
 function markNoticeSeen() { try { sessionStorage.setItem('s19noticeSeen', '1'); } catch (e) {} }
 function render() {
+  stopBanner();
   if (view === 'landing') app.innerHTML = landingHTML();
   else if (view === 'login' || view === 'register') app.innerHTML = authHTML();
   else if (view === 'play') app.innerHTML = playHTML();
@@ -621,9 +718,9 @@ function render() {
   else if (view === 'results') { app.innerHTML = resultsHTML(); loadLeaderboard(); }
   else if (view === 'wallet') app.innerHTML = walletHTML();
   else if (view === 'profile') app.innerHTML = profileHTML();
-  else if (view === 'admin') { adminHTML().then((h) => { app.innerHTML = h; adSub(); }); return; }
+  else if (view === 'admin') { app.innerHTML = '<div class="wrap center" style="padding-top:60px"><div class="spinner"></div><p class="muted" style="margin-top:12px">Loading admin panel...</p></div>'; adminHTML().then((h) => { app.innerHTML = h; adSub(); }); return; }
   if (view === 'admin') return;
-  if (view === 'play' || view === 'mymatches') { /* countdowns tick below */ }
+  if (view === 'play') startBanner();
 }
 setInterval(() => {
   $$('[data-cd]').forEach((el) => {
