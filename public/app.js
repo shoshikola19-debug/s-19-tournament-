@@ -665,28 +665,72 @@ window.doWithdraw = async () => {
 function profileHTML() {
   const played = tournaments.reduce((n, m) => n + m.bookings.filter((b) => profile && b.profile_id === profile.id).length, 0);
   const wins = tournaments.reduce((n, m) => n + m.results.filter((r) => profile && r.profile_id === profile.id && r.placement === 1).length, 0);
-  return `${topbarHTML()}<div class="wrap"><div class="card center">
-    <img class="logo" src="/logo.webp" onerror="this.src='/icon-192.png'">
-    <h2 style="margin-top:8px">${esc(profile ? profile.username : '')}</h2>
-    <p class="muted">S_19 ID #${profile ? profile.accountId : ''} · IGN ${esc(profile ? profile.ign : '')} · UID ${esc(profile ? profile.uid : '—')}</p>
-    <p style="margin-top:8px">S_19 ID #${profile ? profile.accountId : ''}</p></div>
-  <div class="tiles tiles4" style="margin-top:14px">
-    <div class="tile"><span>DEPOSIT BALANCE</span><b>৳${wallet ? wallet.depositBalance : 0}</b></div>
-    <div class="tile"><span>WINNING BALANCE</span><b class="gold">৳${wallet ? wallet.winningBalance : 0}</b></div>
-    <div class="tile"><span>TOTAL MATCHES</span><b>${played}</b></div>
-    <div class="tile"><span>TOTAL WON</span><b class="green">${wins}</b></div>
+  const wonTk = tournaments.reduce((n, m) => n + m.results.filter((r) => profile && r.profile_id === profile.id).reduce((s, r) => s + (r.prize || 0), 0), 0);
+  const av = profile && profile.avatar ? profile.avatar : '/logo.webp';
+  const menuRow = (ic, title, sub, act) => `<button class="menu-row" onclick="${act}">
+    <span class="menu-ic">${ic}</span>
+    <span class="menu-tx"><b>${title}</b><span>${sub}</span></span>
+    <span class="menu-arrow">›</span></button>`;
+  return `${topbarHTML()}<div class="wrap">
+  <div class="profile-head">
+    <div class="avatar-wrap">
+      <img class="avatar-img" src="${esc(av)}" alt="Profile photo" onerror="this.onerror=null;this.src='/logo.webp'">
+      <button class="avatar-cam" onclick="document.getElementById('avatar-input').click()" aria-label="Change photo">📷</button>
+      <input type="file" id="avatar-input" accept="image/*" style="display:none" onchange="uploadAvatar(this)">
+    </div>
+    <h2 class="profile-name">${esc(profile ? profile.username : '')}</h2>
+    <div class="profile-chips">
+      <button class="id-pill" onclick="copyS19Id()">S_19 ID #${profile ? profile.accountId : ''} <span class="copy-ic">📋</span></button>
+      <button class="edit-pill" onclick="editProfile()">✏️ Edit Profile</button>
+    </div>
+    <p class="muted" style="margin-top:10px;font-size:13px">IGN ${esc(profile ? profile.ign : '—')} · UID ${esc(profile ? profile.uid : '—')}</p>
   </div>
-  <div class="card">
-    <button class="btn-ghost" style="margin-top:8px" onclick="editProfile()">✏️ Edit Profile (IGN / UID)</button>
-    <button class="btn-ghost" style="margin-top:8px" onclick="dailySpin()">🎡 Daily Spin ${profile && profile.spunToday ? '(done today)' : ''}</button>
-    <button class="btn-ghost" style="margin-top:8px" onclick="view='results';render()">🏆 Leaderboard</button>
-    <button class="btn-ghost" style="margin-top:8px" onclick="showNotice(1)">📜 All Rules</button>
-    <button class="btn-ghost" style="margin-top:8px" onclick="devProfile()">👨‍💻 Developer Profile</button>
-    ${profile && profile.isAdmin ? `<button class="btn" style="margin-top:8px" onclick="view='admin';render()">⚙️ Admin Panel</button>` : ''}
-    <button class="btn-ghost" style="margin-top:8px" onclick="switchAccount()">🔄 Switch Account</button>
-    <button class="btn-ghost" style="margin-top:8px" onclick="logout()">🚪 Logout</button>
+  <div class="profile-tiles">
+    <div class="profile-tile hot"><span>BDT<br>BALANCE</span><b class="red">৳${wallet ? wallet.depositBalance : 0}</b></div>
+    <div class="profile-tile"><span>TOPUP BALANCE</span><b>৳${wallet ? wallet.winningBalance : 0}</b></div>
+    <div class="profile-tile"><span>TOTAL MATCHES</span><b>${played}</b></div>
+    <div class="profile-tile"><span>TOTAL WON</span><b>৳${wonTk}</b></div>
+  </div>
+  <div class="menu-list">
+    ${menuRow('👛', 'Wallet', 'Manage payments & withdrawals', "view='wallet';render()")}
+    ${menuRow('📖', 'All Rules', 'Check gameplay guidelines', 'showNotice(1)')}
+    ${menuRow('🎡', 'Daily Spin', profile && profile.spunToday ? 'Already spun today — come back tomorrow' : 'Spin to win free match passes', 'dailySpin()')}
+    ${menuRow('📊', 'Leaderboard', 'Top players & your rank', "view='results';render()")}
+    ${profile && profile.isAdmin ? menuRow('⚙️', 'Admin Panel', 'Create rooms, approve payments & results', "view='admin';render()") : ''}
+    ${menuRow('👨‍💻', 'Developer Profile', 'About S_19', 'devProfile()')}
+    ${menuRow('🔄', 'Switch Account', 'Login with another account', 'switchAccount()')}
+    ${menuRow('🚪', 'Logout', 'Sign out of this device', 'logout()')}
   </div></div>${bottomnavHTML()}`;
 }
+window.copyS19Id = () => {
+  const id = profile ? String(profile.accountId) : '';
+  if (navigator.clipboard) navigator.clipboard.writeText(id).then(() => toast('S_19 ID copied')).catch(() => toast('S_19 ID #' + id));
+  else toast('S_19 ID #' + id);
+};
+window.uploadAvatar = (input) => {
+  const f = input.files && input.files[0];
+  if (!f) return;
+  if (!f.type.startsWith('image/')) { toast('Choose an image file'); return; }
+  const rd = new FileReader();
+  rd.onload = () => {
+    const img = new Image();
+    img.onload = async () => {
+      // Downscale to 256x256 (cover crop) so the stored data URL stays small.
+      const c = document.createElement('canvas');
+      c.width = 256; c.height = 256;
+      const ctx = c.getContext('2d');
+      const s = Math.min(img.width, img.height), sx = (img.width - s) / 2, sy = (img.height - s) / 2;
+      ctx.drawImage(img, sx, sy, s, s, 0, 0, 256, 256);
+      try {
+        const d = await api('/api/profile/avatar', { method: 'POST', body: JSON.stringify({ avatar: c.toDataURL('image/jpeg', 0.85) }) });
+        profile = d.profile; render(); toast('Profile photo updated');
+      } catch (e) { toast(e.message); }
+    };
+    img.src = rd.result;
+  };
+  rd.readAsDataURL(f);
+  input.value = '';
+};
 window.editProfile = () => {
   openModal(`<h2>Edit Profile</h2>
   <div class="field"><label>In-game name</label><input id="pf-ign" value="${esc(profile.ign)}"></div>
