@@ -187,18 +187,54 @@ window.doRegister = async () => {
     await loadMe(); showNotice();
   } catch (e) { $('#auth-err').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 };
-function showNotice() {
-  openModal(`<div class="center"><img class="logo" src="/logo.webp" onerror="this.src='/icon-512.png'"><h2 style="margin-top:8px">Welcome Notice</h2></div>
-  <ol class="notice-bn">
-    <li>নিজের স্লট নম্বর মনে রাখবেন।</li>
-    <li>Room Details থেকে পাওয়া ID ও Password দিয়ে কাস্টম রুমে ঢুকবেন।</li>
-    <li>Observer থেকে নিজের স্লটে যাবেন।</li>
-    <li>স্লটে সমস্যা হলে গেমে মেসেজ না দিয়ে Voice On করে হোস্টকে জানাবেন।</li>
-    <li>শৃঙ্খলা বজায় রাখবেন, চিৎকার করবেন না।</li>
-    <li>ID ও Password নেওয়ার সময় থেকে ম্যাচ শুরু পর্যন্ত স্ক্রিন রেকর্ড বাধ্যতামূলক — ভিডিও প্রমাণ না থাকলে রিফান্ড দেওয়া হবে না।</li>
-  </ol>
-  <button class="btn" style="margin-top:14px" onclick="closeModal();view='play';render()">ACCEPT &amp; PROCEED</button>`);
+const LW1V1_SHORT = [
+  'সন্দেহজনক ইউজারকে কোনো নোটিশ ছাড়াই BAN করা হবে।',
+  'অ্যাডমিন রুম দেওয়ার সময় থেকে ম্যাচ শেষ পর্যন্ত স্ক্রিন রেকর্ড বাধ্যতামূলক — ভিডিও দেখাতে না পারলে রিফান্ড / রিওয়ার্ড নেই।',
+  'নিজের নামে জয়েন করতে হবে — অন্যের নামে জয়েন করলে কিক, কোনো রিফান্ড নেই।',
+  '৫০ লেভেলের কম Free Fire আইডি দিয়ে জয়েন করলে কিক, কোনো রিফান্ড নেই।',
+  'জয়েন করার পর কোনো রিফান্ড নেই।',
+  'ম্যাচ শুরুর ৪/৫ মিনিট আগে রুমে ঢুকতে হবে; ২/৩ মিনিট আগে জয়েন করতে না পারলে রিফান্ড নেই।',
+  '১v১-এ Teaming, ইমোট ব্যবহার, লাফালাফি, Zone বা Bomb দিয়ে নিজে মরা সম্পূর্ণ নিষিদ্ধ — করলে এন্ট্রি ফি বাজেয়াপ্ত হবে আর ম্যাচ বাতিল হবে।',
+  'জেতা টাকা ম্যাচ শেষের ৩০ মিনিটের মধ্যে অ্যাকাউন্টে যোগ হবে।',
+  '🔴 "S_19 TOURNAMENT ADMIN"-এর সিদ্ধান্তই চূড়ান্ত সিদ্ধান্ত 🔴',
+];
+function showNotice(stay) {
+  modalRoot.innerHTML = `<div class="overlay center" onclick="if(event.target===this)closeModal()"><div class="notice-sheet">
+  <div class="center"><img class="logo" src="/logo.webp" onerror="this.src='/icon-512.png'"><h2 style="margin-top:8px;letter-spacing:2px">WELCOME NOTICE</h2></div>
+  <div class="notice-scroll" onscroll="noticeScrolled(this)">
+    <ol class="notice-bn">
+      <li>নিজের স্লট নম্বর মনে রাখবেন।</li>
+      <li>Room Details থেকে পাওয়া ID ও Password দিয়ে কাস্টম রুমে ঢুকবেন।</li>
+      <li>Observer থেকে নিজের স্লটে যাবেন।</li>
+      <li>স্লটে সমস্যা হলে গেমে মেসেজ না দিয়ে Voice On করে হোস্টকে জানাবেন।</li>
+      <li>⚠ শৃঙ্খলা বজায় রাখবেন — অযথা ভয়েস অন করে চিল্লাচিল্লি বা বিশৃঙ্খলা করবেন না। এটি টুর্নামেন্টের পরিবেশ নষ্ট করে।</li>
+      <li>📹 ভিডিও রেকর্ড (Screen Record) বাধ্যতামূলক: আইডি-পাসওয়ার্ড নেওয়া থেকে শুরু করে ম্যাচ স্টার্ট হওয়া পর্যন্ত পুরো সময়টা ভিডিও করে রাখবেন। ভিডিও প্রমাণ ছাড়া কোনো প্রকার রিফান্ড (Refund) দাবি করলে তা গ্রহণযোগ্য হবে না।</li>
+    </ol>
+    <h3>🏆 LW 1v1 Match Rules (সংক্ষেপে)</h3>
+    <ol class="notice-bn">
+      ${LW1V1_SHORT.map((r) => `<li>${esc(r)}</li>`).join('')}
+    </ol>
+  </div>
+  <div class="scroll-hint" id="notice-hint">⌄ Scroll down to continue</div>
+  <button id="notice-accept" class="btn btn-readall" style="margin-top:10px" disabled onclick="acceptNotice(${stay ? 1 : 0})">READ ALL TO CONTINUE</button>
+  </div></div>`;
 }
+window.noticeScrolled = (el) => {
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 12) {
+    const b = $('#notice-accept');
+    if (b && b.disabled) {
+      b.disabled = false;
+      b.textContent = 'ACCEPT & PROCEED';
+      b.classList.remove('btn-readall');
+      const h = $('#notice-hint');
+      if (h) h.style.visibility = 'hidden';
+    }
+  }
+};
+window.acceptNotice = (stay) => {
+  closeModal();
+  if (!stay) { view = 'play'; render(); }
+};
 async function loadMe() {
   try { const d = await api('/api/me'); profile = d.profile; wallet = d.wallet; }
   catch (e) { token = ''; localStorage.removeItem('s19token'); profile = null; }
@@ -448,7 +484,7 @@ function profileHTML() {
     <button class="btn-ghost" style="margin-top:8px" onclick="editProfile()">✏️ Edit Profile (IGN / UID)</button>
     <button class="btn-ghost" style="margin-top:8px" onclick="dailySpin()">🎡 Daily Spin ${profile && profile.spunToday ? '(done today)' : ''}</button>
     <button class="btn-ghost" style="margin-top:8px" onclick="view='results';render()">🏆 Leaderboard</button>
-    <button class="btn-ghost" style="margin-top:8px" onclick="showNotice()">📜 All Rules</button>
+    <button class="btn-ghost" style="margin-top:8px" onclick="showNotice(1)">📜 All Rules</button>
     <button class="btn-ghost" style="margin-top:8px" onclick="devProfile()">👨‍💻 Developer Profile</button>
     ${profile && profile.isAdmin ? `<button class="btn" style="margin-top:8px" onclick="view='admin';render()">⚙️ Admin Panel</button>` : ''}
     <button class="btn-ghost" style="margin-top:8px" onclick="logout()">🚪 Logout</button>
@@ -567,7 +603,16 @@ window.savePayment = async () => {
   toast('Payment numbers saved');
 };
 
-// ---------- render / init ----------
+// ---------- splash + render / init ----------
+const splashStart = Date.now();
+function hideSplash() {
+  const el = document.getElementById('splash');
+  if (!el) return;
+  const wait = Math.max(0, 1800 - (Date.now() - splashStart));
+  setTimeout(() => { el.classList.add('hide'); setTimeout(() => el.remove(), 500); }, wait);
+}
+function noticeSeen() { try { return sessionStorage.getItem('s19noticeSeen') === '1'; } catch (e) { return false; } }
+function markNoticeSeen() { try { sessionStorage.setItem('s19noticeSeen', '1'); } catch (e) {} }
 function render() {
   if (view === 'landing') app.innerHTML = landingHTML();
   else if (view === 'login' || view === 'register') app.innerHTML = authHTML();
@@ -591,4 +636,10 @@ setInterval(() => {
   await loadTournaments();
   if (token) { await loadMe(); if (profile) view = 'play'; }
   render();
+  hideSplash();
+  // logged-in app open: splash -> Welcome Notice -> home (once per session)
+  if (profile && !noticeSeen()) {
+    markNoticeSeen();
+    setTimeout(() => showNotice(), 600);
+  }
 })();
