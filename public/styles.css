@@ -138,30 +138,51 @@ h3{font-size:16px;margin-bottom:8px}
 .car-dots{position:absolute;right:12px;bottom:10px;display:flex;gap:6px}
 .car-dot{width:8px;height:8px;border-radius:50%;border:none;background:#555;padding:0}
 .car-dot.on{background:var(--red2);transform:scale(1.25)}
-/* category cards — dark fire/ember gradient, badge left, arrow right */
-.cat-cards{display:grid;grid-template-columns:1fr;gap:10px;margin-top:14px}
-.cat-card{position:relative;overflow:hidden;display:flex;align-items:center;gap:12px;padding:18px 16px;border-radius:18px;border:1px solid #6b241c;text-align:left;color:#fff;
+/* category cards — black card, red border, fire shield tile left, title + Live badge right */
+.cat-cards{display:grid;grid-template-columns:1fr;gap:12px;margin-top:14px}
+.sub-cards{display:grid;grid-template-columns:1fr;gap:12px;margin-top:14px}
+.cat-card{position:relative;overflow:hidden;display:flex;align-items:center;gap:14px;padding:12px;border-radius:18px;border:1.5px solid #c81e1e;text-align:left;color:#fff;background:#0d0d0d;box-shadow:0 0 14px rgba(229,9,20,.25)}
+.cat-cs{border-color:#c81e1e}
+.cat-lw{border-color:#c81e1e}
+.shield-tile{flex:0 0 110px;width:110px;height:92px;border-radius:12px;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;overflow:hidden;
   background:
-    radial-gradient(130px 100px at 88% 12%,rgba(255,122,26,.55),transparent 70%),
-    radial-gradient(190px 140px at 8% 115%,rgba(255,60,20,.45),transparent 70%),
-    linear-gradient(135deg,#3d0d07 0%,#200906 55%,#0e0e0e 100%)}
-.cat-cs{background:
-    radial-gradient(130px 100px at 88% 12%,rgba(255,45,85,.5),transparent 70%),
-    radial-gradient(190px 140px at 8% 115%,rgba(229,9,20,.45),transparent 70%),
-    linear-gradient(135deg,#3d0714 0%,#22060d 55%,#0e0e0e 100%)}
-.cat-lw{background:
-    radial-gradient(130px 100px at 88% 12%,rgba(255,180,0,.5),transparent 70%),
-    radial-gradient(190px 140px at 8% 115%,rgba(255,120,20,.45),transparent 70%),
-    linear-gradient(135deg,#3d2207 0%,#221204 55%,#0e0e0e 100%)}
-.cat-glow{position:absolute;inset:0;background:radial-gradient(160px 110px at 85% 15%,rgba(255,150,50,.35),transparent 70%);animation:emberGlow 3s ease-in-out infinite;pointer-events:none}
-@keyframes emberGlow{0%,100%{opacity:.45}50%{opacity:1}}
-.cat-logo{width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,.3);box-shadow:0 0 18px rgba(255,90,20,.55);flex:0 0 auto;position:relative;z-index:1}
-.cat-body{display:flex;flex-direction:column;align-items:flex-start;gap:3px;flex:1;min-width:0;position:relative;z-index:1}
-.cat-card .cat-badge{align-self:flex-start;background:rgba(0,0,0,.55);border:1px solid rgba(255,180,0,.65);color:var(--gold);font-size:10px;font-weight:800;letter-spacing:2px;border-radius:6px;padding:3px 8px}
-.cat-card .cat-title{font-size:18px;letter-spacing:1px;color:#fff}
-.cat-card .cat-sub{font-size:12px;color:#ffd9c2}
-.cat-arrow{font-size:32px;line-height:1;color:#ffb4a2;position:relative;z-index:1;flex:0 0 auto}
-.live-badge{align-self:flex-start;background:rgba(34,197,94,.15);color:var(--green);border:1px solid rgba(34,197,94,.4);border-radius:20px;padding:3px 10px;font-size:12px;font-weight:700;margin-top:6px}
+    radial-gradient(90px 70px at 50% 0%,rgba(255,150,40,.55),transparent 70%),
+    radial-gradient(110px 90px at 50% 115%,rgba(255,60,20,.5),transparent 70%),
+    radial-gradient(60px 50px at 15% 30%,rgba(255,200,60,.28),transparent 70%),
+    linear-gradient(160deg,#2b1206 0%,#170a06 55%,#0a0a0a 100%);
+  border:1px solid rgba(255,140,50,.35)}
+.shield-tile::before{content:'';position:absolute;inset:0;background:
+  radial-gradient(2px 2px at 20% 25%,rgba(255,180,80,.9),transparent),
+  radial-gradient(2px 2px at 75% 15%,rgba(255,150,50,.8),transparent),
+  radial-gradient(1.5px 1.5px at 85% 70%,rgba(255,200,100,.8),transparent),
+  radial-gradient(1.5px 1.5px at 10% 75%,rgba(255,140,40,.7),transparent)}
+.shield-logo{position:relative;z-index:1;width:52px;height:52px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,180,0,.75);box-shadow:0 0 16px rgba(255,120,20,.65)}
+.shield-label{position:relative;z-index:1;font-size:10px;font-weight:800;letter-spacing:1px;color:var(--gold);text-align:center;line-height:1.25;text-shadow:0 1px 4px rgba(0,0,0,.9);padding:0 4px}
+.cat-body{display:flex;flex-direction:column;align-items:flex-start;gap:5px;flex:1;min-width:0;position:relative;z-index:1}
+.cat-card .cat-title{font-size:19px;letter-spacing:.5px;color:#fff;line-height:1.15}
+.cat-card .cat-sub{font-size:13px;color:#d8cfc9}
+.cat-arrow{font-size:30px;line-height:1;color:#e8e8e8;position:relative;z-index:1;flex:0 0 auto}
+.live-badge{align-self:flex-start;background:rgba(34,197,94,.15);color:var(--green);border:1px solid rgba(34,197,94,.45);border-radius:20px;padding:4px 11px;font-size:12px;font-weight:700;margin-top:4px}
+/* Need any Help row — headset icon left, Contact pill right */
+.help-row{display:flex;align-items:center;gap:12px;background:#0d0d0d;border:1.5px solid #c81e1e;border-radius:16px;padding:14px 16px;margin-top:14px;box-shadow:0 0 14px rgba(229,9,20,.2)}
+.help-ic{position:relative;width:48px;height:48px;border-radius:50%;background:linear-gradient(180deg,var(--red2),var(--red));display:flex;align-items:center;justify-content:center;font-size:24px;flex:0 0 auto;box-shadow:0 0 16px rgba(229,9,20,.55)}
+.help-dot{position:absolute;top:2px;right:2px;width:11px;height:11px;border-radius:50%;background:var(--green);border:2px solid #0d0d0d}
+.help-txt{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.help-txt b{font-size:17px}
+.help-txt span{font-size:13px;color:var(--mut)}
+.help-contact{background:linear-gradient(180deg,var(--red2),var(--red));border:none;color:#fff;border-radius:22px;padding:11px 20px;font-weight:700;font-size:15px;flex:0 0 auto;box-shadow:0 4px 14px rgba(229,9,20,.45)}
+.help-contact:active{transform:scale(.96)}
+/* category / list page header — back arrow left, centred title */
+.page-head{display:flex;align-items:center;margin-top:14px}
+.page-head h2{flex:1;text-align:center;margin:0;letter-spacing:1px}
+.back-arrow{background:none;border:none;color:#fff;font-size:28px;line-height:1;padding:4px 10px 4px 0;flex:0 0 auto}
+.head-spacer{flex:0 0 38px}
+/* squad join box */
+.squad-box{margin-top:14px;border:1px solid var(--line);border-radius:14px;padding:12px;background:#141414}
+.squad-box b{font-size:15px}
+.squad-box .muted{margin-top:4px}
+/* bottom nav — active tab gets a red bar on top (Play in the centre) */
+.bottomnav button.on{color:var(--red2);box-shadow:inset 0 3px 0 var(--red2)}
 /* telegram banner slide (S_19 style — tap opens Support, no handle invented) */
 .car-telegram{background:linear-gradient(135deg,rgba(42,167,219,.22),transparent 65%)}
 /* floating chat button */
