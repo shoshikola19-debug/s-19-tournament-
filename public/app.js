@@ -483,6 +483,8 @@ function topbarHTML() {
 }
 function bottomnavHTML() {
   const items = [['topup', '💎', 'Diamond Topup'], ['results', '📊', 'Results'], ['play', '🎮', 'Play'], ['mymatches', '🏆', 'My Matches'], ['profile', '👤', 'Profile']];
+  // Admin gets a separate Admin tab next to Profile; regular players never see it.
+  if (profile && profile.isAdmin) items.push(['admin', '⚙️', 'Admin']);
   return `<div class="bottomnav">${items.map(([v, ic, lb]) => `<button class="${view === v ? 'on' : ''}" onclick="view='${v}';render()"><span class="ic">${ic}</span>${lb}</button>`).join('')}</div><button class="chat-fab" onclick="openSupport()" aria-label="Customer Support">💬</button>`;
 }
 function matchCard(m) {
