@@ -421,7 +421,19 @@ function safeProfile(p) {
     phone: p.phone, ign: p.ign, uid: p.uid, avatar: p.avatar || '',
     isAdmin: p.email === OWNER_EMAIL,
     spunToday: p.last_spin_date === dhakaDateStr(),
+    passes: {
+      br: p.br_passes || 0, cs: p.cs_passes || 0,
+      lw: p.lw_passes || 0, all: p.all_passes || 0,
+    },
   };
+}
+
+// A booking made with a free pass: if it is later cancelled / rejected /
+// the match is cancelled or deleted, the pass goes back to the player.
+async function returnPass(profileId, usedPass) {
+  const col = { br: 'br_passes', cs: 'cs_passes', lw: 'lw_passes', all: 'all_passes' }[usedPass];
+  if (!col) return;
+  await db.run(`UPDATE profiles SET ${col} = ${col} + 1 WHERE id = ?`, [profileId]);
 }
 
 app.get('/api/me', auth, async (req, res) => {
@@ -521,6 +533,7 @@ app.delete('/api/tournaments/:id', adminAuth, async (req, res) => {
       await db.run("INSERT INTO wallet_tx (profile_id, type, amount, note, status, created_at) VALUES (?,?,?,?, 'approved', ?)",
         [bk.profile_id, 'refund', fee, 'Refund: match deleted', new Date().toISOString()]);
     }
+    if (bk.used_pass) await returnPass(bk.profile_id, bk.used_pass);
   }
   await db.run('DELETE FROM bookings WHERE tournament_id = ?', [t.id]);
   await db.run('DELETE FROM results WHERE tournament_id = ?', [t.id]);
@@ -546,6 +559,7 @@ app.post('/api/tournaments/:id/cancel', adminAuth, async (req, res) => {
       await db.run("INSERT INTO wallet_tx (profile_id, type, amount, note, status, created_at) VALUES (?,?,?,?, 'approved', ?)",
         [bk.profile_id, 'refund', t.entry_fee, 'Refund: match cancelled', new Date().toISOString()]);
     }
+    if (bk.used_pass) await returnPass(bk.profile_id, bk.used_pass);
     await db.run("UPDATE bookings SET status = 'rejected' WHERE id = ?", [bk.id]);
   }
   await db.run("UPDATE tournaments SET status = 'cancelled' WHERE id = ?", [t.id]);
@@ -559,7 +573,7 @@ app.post('/api/tournaments/:id/book', auth, async (req, res) => {
     if (!t) return res.status(404).json({ ok: false, error: 'Match not found' });
     if (t.status !== 'upcoming') return res.status(400).json({ ok: false, error: 'This match is not open for joining' });
     if (matchStarted(t)) return res.status(400).json({ ok: false, error: 'Match already started' });
-    const { slotNumber, playerName, squadNames } = req.body || {};
+    const { slotNumber, playerName, squadNames, usePass } = req.body || {};
     const slot = Number(slotNumber);
     if (!slot || slot < 1 || slot > t.total_slots) {
       return res.status(400).json({ ok: false, error: 'Pick a free slot number' });
@@ -592,18 +606,34 @@ app.post('/api/tournaments/:id/book', auth, async (req, res) => {
       "SELECT id FROM bookings WHERE tournament_id = ? AND profile_id = ? AND status IN ('pending','approved')",
       [t.id, req.profileId]);
     if (mine) return res.status(400).json({ ok: false, error: 'You already booked a slot in this match' });
+    // Free pass (won on the Daily Spin wheel): the category pass first,
+    // otherwise an All pass. Entry fee becomes ৳0 and the pass is spent.
+    let usedPass = '';
+    if (usePass) {
+      const p = await db.get('SELECT * FROM profiles WHERE id = ?', [req.profileId]);
+      const catCol = { br: 'br_passes', cs: 'cs_passes', lw: 'lw_passes' }[t.category];
+      if (catCol && (p[catCol] || 0) > 0) {
+        usedPass = t.category;
+        await db.run(`UPDATE profiles SET ${catCol} = ${catCol} - 1 WHERE id = ?`, [req.profileId]);
+      } else if ((p.all_passes || 0) > 0) {
+        usedPass = 'all';
+        await db.run('UPDATE profiles SET all_passes = all_passes - 1 WHERE id = ?', [req.profileId]);
+      } else {
+        return res.status(400).json({ ok: false, error: 'No free pass for this match — spin the Daily Spin wheel to win one' });
+      }
+    }
     const w = await walletFor(req.profileId);
-    if (t.entry_fee > w.depositBalance) {
+    if (!usedPass && t.entry_fee > w.depositBalance) {
       return res.status(400).json({ ok: false, error: 'Not enough Deposit Balance — add money first' });
     }
-    if (t.entry_fee > 0) {
+    if (!usedPass && t.entry_fee > 0) {
       await db.run("INSERT INTO wallet_tx (profile_id, type, amount, note, status, created_at) VALUES (?,?,?,?,'approved',?)",
         [req.profileId, 'entry', -t.entry_fee, 'Entry fee: ' + t.title, new Date().toISOString()]);
     }
     const id = await db.insert(
-      "INSERT INTO bookings (tournament_id, profile_id, slot_number, player_name, squad_names, status, created_at) VALUES (?,?,?,?,?, 'pending',?)",
-      [t.id, req.profileId, slot, playerName || req.profile.ign, JSON.stringify(squad), new Date().toISOString()]);
-    res.json({ ok: true, id });
+      "INSERT INTO bookings (tournament_id, profile_id, slot_number, player_name, squad_names, used_pass, status, created_at) VALUES (?,?,?,?,?,?, 'pending',?)",
+      [t.id, req.profileId, slot, playerName || req.profile.ign, JSON.stringify(squad), usedPass, new Date().toISOString()]);
+    res.json({ ok: true, id, usedPass });
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
 
@@ -616,6 +646,8 @@ app.post('/api/bookings/:id/cancel', auth, async (req, res) => {
     await db.run("INSERT INTO wallet_tx (profile_id, type, amount, note, status, created_at) VALUES (?,?,?,?, 'approved', ?)",
       [req.profileId, 'refund', t.entry_fee, 'Refund: booking cancelled', new Date().toISOString()]);
   }
+  // A booking made with a free pass gives the pass back on cancel.
+  if (bk.used_pass) await returnPass(req.profileId, bk.used_pass);
   await db.run("UPDATE bookings SET status = 'cancelled' WHERE id = ?", [bk.id]);
   res.json({ ok: true });
 });
@@ -630,6 +662,7 @@ app.post('/api/bookings/:id/review', adminAuth, async (req, res) => {
       await db.run("INSERT INTO wallet_tx (profile_id, type, amount, note, status, created_at) VALUES (?,?,?,?, 'approved', ?)",
         [bk.profile_id, 'refund', t.entry_fee, 'Refund: join rejected', new Date().toISOString()]);
     }
+    if (bk.used_pass) await returnPass(bk.profile_id, bk.used_pass);
   }
   await db.run('UPDATE bookings SET status = ? WHERE id = ?', [approve ? 'approved' : 'rejected', bk.id]);
   res.json({ ok: true });
@@ -776,20 +809,50 @@ app.get('/api/leaderboard', async (req, res) => {
   res.json({ ok: true, standings: rows });
 });
 
-// ---- daily spin ----
-app.post('/api/spin', auth, async (req, res) => {
+// ---- daily spin wheel: win a free match pass (BR / CS / LW / All) ----
+// Wheel segments, clockwise from the top (matches the conic-gradient):
+// CS, No Prize, LW, No Prize, All, No Prize, BR, No Prize.
+const SPIN_SEGMENTS = ['cs', 'none', 'lw', 'none', 'all', 'none', 'br', 'none'];
+const SPIN_PRIZE_LABEL = { br: 'BR Match', cs: 'CS Match', lw: 'LW Match', all: 'All Match', none: 'No Prize' };
+// Weighted draw: No Prize 50%, BR / CS / LW / All 12.5% each.
+function drawSpinPrize() {
+  const r = Math.random();
+  if (r < 0.5) return 'none';
+  if (r < 0.625) return 'br';
+  if (r < 0.75) return 'cs';
+  if (r < 0.875) return 'lw';
+  return 'all';
+}
+function nextSpinAtMs() {
+  const d = dhakaNow();
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, -6, 0, 0);
+}
+function spinState(p) {
+  const spun = p.last_spin_date === dhakaDateStr();
+  return {
+    ok: true, canSpin: !spun, spunToday: spun,
+    nextSpinAt: nextSpinAtMs(),
+    passes: { br: p.br_passes || 0, cs: p.cs_passes || 0, lw: p.lw_passes || 0, all: p.all_passes || 0 },
+  };
+}
+app.get('/api/daily-spin', auth, async (req, res) => {
+  res.json(spinState(req.profile));
+});
+app.post('/api/daily-spin', auth, async (req, res) => {
   if (req.profile.last_spin_date === dhakaDateStr()) {
     return res.status(400).json({ ok: false, error: 'You already spun today — come back tomorrow' });
   }
-  const segments = [0, 5, 10, 0, 20, 5, 0, 50];
-  const idx = Math.floor(Math.random() * segments.length);
-  const prize = segments[idx];
-  if (prize > 0) {
-    await db.run("INSERT INTO wallet_tx (profile_id, type, amount, note, status, created_at) VALUES (?,?,?,?,'approved',?)",
-      [req.profileId, 'spin', prize, 'Daily Spin prize', new Date().toISOString()]);
-  }
-  await db.run('UPDATE profiles SET last_spin_date = ? WHERE id = ?', [dhakaDateStr(), req.profileId]);
-  res.json({ ok: true, segment: idx, prize });
+  const prize = drawSpinPrize();
+  const segIdx = prize === 'none'
+    ? [1, 3, 5, 7][Math.floor(Math.random() * 4)]
+    : SPIN_SEGMENTS.indexOf(prize);
+  const col = { br: 'br_passes', cs: 'cs_passes', lw: 'lw_passes', all: 'all_passes' }[prize];
+  const now = Date.now();
+  if (col) await db.run(`UPDATE profiles SET ${col} = ${col} + 1 WHERE id = ?`, [req.profileId]);
+  await db.run('UPDATE profiles SET last_spin_date = ?, last_spin_at = ? WHERE id = ?',
+    [dhakaDateStr(), now, req.profileId]);
+  const p = await db.get('SELECT * FROM profiles WHERE id = ?', [req.profileId]);
+  res.json({ ...spinState(p), segment: segIdx, prize, prizeLabel: SPIN_PRIZE_LABEL[prize] });
 });
 
 // ---- payment info ----
