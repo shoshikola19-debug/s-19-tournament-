@@ -118,7 +118,7 @@ function req(method, p, body, token) {
     // team boxes, Match Full, tutorial, Remember Me, Forgot, results tabs,
     // support modal + animations must be present in served files
     const appJs = await (await fetch('http://127.0.0.1:3101/app.js')).text();
-    for (const s of ['banner-carousel', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'DEPOSIT BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'S_19 on Telegram', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'Join with Squad', 'squadNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League']) {
+    for (const s of ['banner-carousel', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'DEPOSIT BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'S_19 on Telegram', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'Join with Squad', 'squadNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled']) {
       assert.ok(appJs.includes(s), 'app.js missing: ' + s);
     }
     const css = await (await fetch('http://127.0.0.1:3101/styles.css')).text();
@@ -127,6 +127,10 @@ function req(method, p, body, token) {
     }
     const man = await fetch('http://127.0.0.1:3101/manifest.webmanifest');
     assert.strictEqual(man.status, 200, 'manifest serves');
+    const sw = await (await fetch('http://127.0.0.1:3101/sw.js')).text();
+    assert.ok(sw.includes('s19-tournament-v2'), 'sw cache bumped to v2 so phones fetch the new shell');
+    const idx = await (await fetch('http://127.0.0.1:3101/')).text();
+    assert.ok(idx.includes('appinstalled'), 'index hides Download after install');
     const icon = await fetch('http://127.0.0.1:3101/icon-512.png');
     assert.strictEqual(icon.status, 200, 'icon serves');
     console.log('SMOKE OK — all checks passed');
