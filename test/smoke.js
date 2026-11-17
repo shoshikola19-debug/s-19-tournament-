@@ -356,6 +356,74 @@ function req(method, p, body, token) {
     assert.strictEqual(dupUser.status, 400, 'duplicate username rejected');
     assert.strictEqual(dupUser.data.error, 'This username is already taken. Please choose another one.', 'duplicate username message in English');
 
+    // ---- app settings + players (admin) ----
+    // ownerToken died in the forgot-password test above (sessions wiped);
+    // re-login with the new password set there.
+    const ownerLogin2 = await req('POST', '/api/login', { emailOrUsername: 'shoshikola19@gmail.com', password: 'newpass99' });
+    assert.strictEqual(ownerLogin2.status, 200, 'owner re-login after reset: ' + JSON.stringify(ownerLogin2.data));
+    const ownerToken2 = ownerLogin2.data.token;
+    const cfg0 = await req('GET', '/api/app-config');
+    assert.strictEqual(cfg0.status, 200, 'app-config public');
+    assert.strictEqual(cfg0.data.config.appName, 'S_19 TOURNAMENT', 'default app name');
+    assert.strictEqual(cfg0.data.config.withdrawMin, 100, 'default withdraw min 100');
+    assert.strictEqual(cfg0.data.config.spinEnabled, true, 'spin on by default');
+    const setNoAuth = await req('GET', '/api/settings', null, regNa.data.token);
+    assert.strictEqual(setNoAuth.status, 403, 'non-admin cannot read settings');
+    const setPutNoAuth = await req('PUT', '/api/settings', { appName: 'HACK' }, regNa.data.token);
+    assert.strictEqual(setPutNoAuth.status, 403, 'non-admin cannot change settings');
+    const setBad = await req('PUT', '/api/settings', { withdrawMin: -5 }, ownerToken2);
+    assert.strictEqual(setBad.status, 400, 'bad withdraw min rejected');
+    const setBad2 = await req('PUT', '/api/settings', { withdrawStart: 1200, withdrawEnd: 600 }, ownerToken2);
+    assert.strictEqual(setBad2.status, 400, 'start after end rejected');
+    const set = await req('PUT', '/api/settings', { appName: 'S_19 TEST', noticeRules: 'Rule one.\nRule two.', bannerTitle: 'TEST BANNER', bannerSubtitle: 'Test subtitle', withdrawMin: 200, withdrawStart: 0, withdrawEnd: 1439, spinEnabled: false }, ownerToken2);
+    assert.strictEqual(set.status, 200, 'admin saves settings: ' + JSON.stringify(set.data));
+    assert.strictEqual(set.data.settings.appName, 'S_19 TEST', 'saved app name');
+    assert.strictEqual(set.data.settings.withdrawMin, 200, 'saved withdraw min');
+    const cfg1 = await req('GET', '/api/app-config');
+    assert.strictEqual(cfg1.data.config.appName, 'S_19 TEST', 'app-config shows new name');
+    assert.strictEqual(cfg1.data.config.noticeRules, 'Rule one.\nRule two.', 'app-config shows new notice');
+    assert.strictEqual(cfg1.data.config.bannerTitle, 'TEST BANNER', 'app-config shows new banner');
+    // withdraw honors the new minimum (owner winning is 160; 150 < 200 -> min error)
+    const wdMin = await req('POST', '/api/withdraw', { amount: 150, method: 'bkash', accountNumber: '01906502081' }, ownerToken2);
+    assert.strictEqual(wdMin.status, 400, 'withdraw below new min refused');
+    assert.ok(/200/.test(wdMin.data.error), 'min error names 200, got: ' + wdMin.data.error);
+    // spin disabled: POST rejected even though the owner already spun today (disabled checked first)
+    const spinOff = await req('POST', '/api/daily-spin', {}, ownerToken2);
+    assert.strictEqual(spinOff.status, 400, 'spin disabled rejected');
+    assert.ok(/disabled/i.test(spinOff.data.error), 'disabled message, got: ' + spinOff.data.error);
+    const spinStateOff = await req('GET', '/api/daily-spin', null, ownerToken2);
+    assert.strictEqual(spinStateOff.data.spinEnabled, false, 'spin state says disabled');
+    assert.strictEqual(spinStateOff.data.canSpin, false, 'cannot spin while disabled');
+    // restore defaults so nothing later sees the test values
+    const setBack = await req('PUT', '/api/settings', { appName: 'S_19 TOURNAMENT', noticeRules: 'নিজের স্লট নম্বর মনে রাখবেন।', bannerTitle: 'S_19 TOURNAMENT', bannerSubtitle: 'PLAY WIN ENJOY — Daily BR • CS • Lone Wolf matches. Win real Taka prizes!', withdrawMin: 100, withdrawStart: 600, withdrawEnd: 1290, spinEnabled: true }, ownerToken2);
+    assert.strictEqual(setBack.status, 200, 'settings restored');
+
+    // players list + ban/unban (plainuser = regNa, token still valid)
+    me = await req('GET', '/api/me', null, ownerToken2);
+    const players = await req('GET', '/api/admin/players', null, ownerToken2);
+    assert.strictEqual(players.status, 200, 'admin players list');
+    const plain = players.data.players.find((p) => p.username === 'plainuser');
+    assert.ok(plain, 'plainuser in players list');
+    assert.strictEqual(plain.banned, false, 'not banned yet');
+    assert.ok(typeof plain.depositBalance === 'number' && typeof plain.winningBalance === 'number', 'balances in list');
+    const playersNoAuth = await req('GET', '/api/admin/players', null, regNa.data.token);
+    assert.strictEqual(playersNoAuth.status, 403, 'non-admin cannot list players');
+    const banOwner = await req('POST', `/api/admin/players/${me.data.profile.id}/ban`, { banned: true }, ownerToken2);
+    assert.strictEqual(banOwner.status, 400, 'cannot ban the owner');
+    const banNoAuth = await req('POST', `/api/admin/players/${plain.id}/ban`, { banned: true }, regNa.data.token);
+    assert.strictEqual(banNoAuth.status, 403, 'non-admin cannot ban');
+    const ban = await req('POST', `/api/admin/players/${plain.id}/ban`, { banned: true }, ownerToken2);
+    assert.strictEqual(ban.status, 200, 'ban player: ' + JSON.stringify(ban.data));
+    const banLogin = await req('POST', '/api/login', { emailOrUsername: 'plain@example.com', password: 'test1234' });
+    assert.strictEqual(banLogin.status, 403, 'banned login rejected');
+    assert.strictEqual(banLogin.data.error, 'This account is banned', 'ban message');
+    const banJoin = await req('POST', '/api/tournaments/2/book', { slotNumber: 2, playerName: 'plainuser' }, regNa.data.token);
+    assert.strictEqual(banJoin.status, 403, 'banned join rejected');
+    const unban = await req('POST', `/api/admin/players/${plain.id}/ban`, { banned: false }, ownerToken2);
+    assert.strictEqual(unban.status, 200, 'unban player');
+    const unbanLogin = await req('POST', '/api/login', { emailOrUsername: 'plain@example.com', password: 'test1234' });
+    assert.strictEqual(unbanLogin.status, 200, 'login works after unban: ' + JSON.stringify(unbanLogin.data));
+
     // payment info + landing page + manifest
     const pay = await req('GET', '/api/payment-info');
     assert.strictEqual(pay.data.bkashNumber, '01906502081', 'bKash number seeded');
@@ -366,14 +434,16 @@ function req(method, p, body, token) {
     // team boxes, Match Full, tutorial, Remember Me, Forgot, results tabs,
     // support modal + animations must be present in served files
     const appJs = await (await fetch('http://127.0.0.1:3101/app.js')).text();
-    for (const s of ['banner-carousel', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'TOPUP BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'S_19 on Telegram', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'Join with Squad', 'squadNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled', 'ad-prize1', 'em-prize1', 'Match Prizes', '1st Prize', '2nd Prize', 'prize1', 'avatar-img', 'avatar-cam', 'uploadAvatar', 'copyS19Id', 'profile-tiles', 'profile-tile', 'menu-list', 'menu-row', 'BDT', 'Edit Profile', 'Daily Spin', 'All Rules', 'Leaderboard', 'wallet-hero', 'Available Balance', 'DEPOSITED', 'WINNING', 'Transfer Balance', 'openTransfer', 'transfer-balance', 'Transfer to Deposit', 'BKASH &amp; NAGAD', 'Proceed to Payment', '10 - 1000', 'minimum of 10 Taka', 'maximum of 1000', 'Transaction History', 'openTxHistory', 'How to add money?', 'openHowToAddMoney', 'How to join a match?', 'How to withdraw?', 'openHowToWithdraw', 'Nagad number not added yet', 'Nagad number will be added later', 'depPickGateway', 'depPickMethod', 'depCheck', 'depStep2', 'match-head', 'match-date', 'fmtDateTime', 'tile-ic', 'reg-row', 'join-btn', 'tutorial-pill', 'ad-slots', 'em-slots', 'Total Slots', 'adSlotsDefault', 'SLOT_DEFAULTS', 'Email / Username / Phone', 'Email, username or phone number', 'already exists', 'already taken', 'Send Code', 'Resend Code', 'Enter Reset Code', 'forgot-password/request', 'forgot-password/verify', 'Password Reset Requests', 'reset-requests', 'cancelReset', 'doForgotSend', 'doForgotVerify', 'topupHTML', 'topupSoon', 'Top-up coming soon', 'FREE FIRE TOPUP BD SERVER', 'INDONESIA SERVER', 'UID TOPUP', 'Level Up Pass', 'Weekly Lite', 'Weekly & Monthly', 'topup-grid', 'topup-card', 'topup-banner', 'TOPUP_PACKS_BD', 'TOPUP_PACKS_ID', 'daily-spin', 'spin-wheel', 'Spin Now', 'Next Spin in', 'Use free pass', 'SPIN_SEGMENTS', 'openSpin', 'doSpin', 'passForMatch', 'spin-counters', 'spin-head', 'spin-hub', 'spin-countdown', 'You won a free', 'Better luck tomorrow', 'spinState', 'usedPass']) {
+    for (const s of ['banner-carousel', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'TOPUP BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'S_19 on Telegram', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'Join with Squad', 'squadNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled', 'ad-prize1', 'em-prize1', 'Match Prizes', '1st Prize', '2nd Prize', 'prize1', 'avatar-img', 'avatar-cam', 'uploadAvatar', 'copyS19Id', 'profile-tiles', 'profile-tile', 'menu-list', 'menu-row', 'BDT', 'Edit Profile', 'Daily Spin', 'All Rules', 'Leaderboard', 'wallet-hero', 'Available Balance', 'DEPOSITED', 'WINNING', 'Transfer Balance', 'openTransfer', 'transfer-balance', 'Transfer to Deposit', 'BKASH &amp; NAGAD', 'Proceed to Payment', '10 - 1000', 'minimum of 10 Taka', 'maximum of 1000', 'Transaction History', 'openTxHistory', 'How to add money?', 'openHowToAddMoney', 'How to join a match?', 'How to withdraw?', 'openHowToWithdraw', 'Nagad number not added yet', 'Nagad number will be added later', 'depPickGateway', 'depPickMethod', 'depCheck', 'depStep2', 'match-head', 'match-date', 'fmtDateTime', 'tile-ic', 'reg-row', 'join-btn', 'tutorial-pill', 'ad-slots', 'em-slots', 'Total Slots', 'adSlotsDefault', 'SLOT_DEFAULTS', 'Email / Username / Phone', 'Email, username or phone number', 'already exists', 'already taken', 'Send Code', 'Resend Code', 'Enter Reset Code', 'forgot-password/request', 'forgot-password/verify', 'Password Reset Requests', 'reset-requests', 'cancelReset', 'doForgotSend', 'doForgotVerify', 'topupHTML', 'topupSoon', 'Top-up coming soon', 'FREE FIRE TOPUP BD SERVER', 'INDONESIA SERVER', 'UID TOPUP', 'Level Up Pass', 'Weekly Lite', 'Weekly & Monthly', 'topup-grid', 'topup-card', 'topup-banner', 'TOPUP_PACKS_BD', 'TOPUP_PACKS_ID', 'daily-spin', 'spin-wheel', 'Spin Now', 'Next Spin in', 'Use free pass', 'SPIN_SEGMENTS', 'openSpin', 'doSpin', 'passForMatch', 'spin-counters', 'spin-head', 'spin-hub', 'spin-countdown', 'You won a free', 'Better luck tomorrow', 'spinState', 'usedPass', 'Payment Requests', 'admin/transactions', 'reviewTx', 'payreq', 'Verify this TrxID', 'Fake TrxIDs must be rejected', 'I verified this transaction', 'toggleApproveBtn', 'App Settings', 'saveAppSettings', 'Players', 'toggleBan', 'app-config', 'loadAppConfig', 'noticeRules', 'withdrawInfoText', 'Daily Spin is currently disabled', 'Daily Spin is off']) {
       assert.ok(appJs.includes(s), 'app.js missing: ' + s);
     }
     assert.ok(!appJs.includes('topup-order') && !appJs.includes('/api/topup'), 'topup is display-only: no order endpoint');
     const css = await (await fetch('http://127.0.0.1:3101/styles.css')).text();
-    for (const s of ['@keyframes pageIn', '@keyframes cardIn', 'splashPulse', 'splashSpin', '.spinner', '.chat-fab', '.banner-carousel', 'prefers-reduced-motion', '.shield-tile', '.shield-label', '.help-row', '.help-contact', '.page-head', '.squad-box', '.sub-card', '.avatar-img', '.avatar-cam', '.profile-tiles', '.profile-tile', '.menu-list', '.menu-row', '.edit-pill', '.id-pill', '.wallet-hero', '.wallet-tiles', '.wallet-tile', '.wallet-actions', '.wallet-btn', '.wallet-btn-blue', '.wallet-btn-green', '.wallet-btn-purple', '.addmoney-hero', '.addmoney-ic', '.dep-note', '.gw-pills', '.gw-pill', '.amt-box', '.btn-proceed', '.match-head', '.match-date', '.tile-ic', '.reg-row', '.join-btn', '.tutorial-pill', '.topup-banner', '.topup-grid', '.topup-card', '.topup-tile', '.topup-head', '.topup-badge', '.topup-sec', '.spin-wheel', '.spin-label', '.spin-pointer', '.spin-hub', '.spin-counters', '.spin-head', '.spin-countdown', '.spin-btn']) {
+    for (const s of ['@keyframes pageIn', '@keyframes cardIn', 'splashPulse', 'splashSpin', '.spinner', '.chat-fab', '.banner-carousel', 'prefers-reduced-motion', '.shield-tile', '.shield-label', '.help-row', '.help-contact', '.page-head', '.squad-box', '.sub-card', '.avatar-img', '.avatar-cam', '.profile-tiles', '.profile-tile', '.menu-list', '.menu-row', '.edit-pill', '.id-pill', '.wallet-hero', '.wallet-tiles', '.wallet-tile', '.wallet-actions', '.wallet-btn', '.wallet-btn-blue', '.wallet-btn-green', '.wallet-btn-purple', '.addmoney-hero', '.addmoney-ic', '.dep-note', '.gw-pills', '.gw-pill', '.amt-box', '.btn-proceed', '.match-head', '.match-date', '.tile-ic', '.reg-row', '.join-btn', '.tutorial-pill', '.topup-banner', '.topup-grid', '.topup-card', '.topup-tile', '.topup-head', '.topup-badge', '.topup-sec', '.spin-wheel', '.spin-label', '.spin-pointer', '.spin-hub', '.spin-counters', '.spin-head', '.spin-countdown', '.spin-btn', 'user-select:none', '-webkit-touch-callout:none', '-webkit-tap-highlight-color:transparent', '.payreq', '.payreq-amt', '.verify-row']) {
       assert.ok(css.includes(s), 'styles.css missing: ' + s);
     }
+    assert.ok(/input,select,textarea\{[^}]*font-size:16px/.test(css), 'input font stays 16px (no auto-zoom on focus)');
+    assert.ok(/body\{[^}]*user-select:none/.test(css), 'body text selection disabled');
     const man = await fetch('http://127.0.0.1:3101/manifest.webmanifest');
     assert.strictEqual(man.status, 200, 'manifest serves');
     const sw = await (await fetch('http://127.0.0.1:3101/sw.js')).text();
