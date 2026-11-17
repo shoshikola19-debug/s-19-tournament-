@@ -212,6 +212,21 @@ app.post('/api/login', async (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
 
+app.post('/api/forgot-password', async (req, res) => {
+  try {
+    const { email, newPassword } = req.body || {};
+    if (!newPassword || String(newPassword).length < 4) {
+      return res.status(400).json({ ok: false, error: 'New password must be 4+ characters' });
+    }
+    const p = await db.get('SELECT * FROM profiles WHERE email = ?', [email]);
+    if (!p) return res.status(400).json({ ok: false, error: 'No account found with this email' });
+    const { salt, hash } = hashPassword(String(newPassword));
+    await db.run('UPDATE profiles SET password_hash = ?, password_salt = ? WHERE id = ?', [hash, salt, p.id]);
+    await db.run('DELETE FROM sessions WHERE profile_id = ?', [p.id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+
 function safeProfile(p) {
   if (!p) return null;
   return {
