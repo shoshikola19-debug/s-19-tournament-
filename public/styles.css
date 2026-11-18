@@ -163,6 +163,9 @@ h3{font-size:14px;margin-bottom:6px}
 .car-dots{position:absolute;right:12px;bottom:10px;display:flex;gap:6px}
 .car-dot{width:8px;height:8px;border-radius:50%;border:none;background:#555;padding:0}
 .car-dot.on{background:var(--red2);transform:scale(1.25)}
+/* banner carousel image slides (home screenshot, Telegram, WhatsApp banners) */
+.car-slide.car-img{padding:0}
+.car-slide.car-img img{display:block;width:100%;height:200px;object-fit:cover}
 /* category cards — black card, red border, fire shield tile left, title + Live badge right */
 .cat-cards{display:grid;grid-template-columns:1fr;gap:12px;margin-top:14px}
 .sub-cards{display:grid;grid-template-columns:1fr;gap:12px;margin-top:14px}
@@ -208,8 +211,6 @@ h3{font-size:14px;margin-bottom:6px}
 .squad-box .muted{margin-top:4px}
 /* bottom nav — active tab gets a red bar on top (Play in the centre) */
 .bottomnav button.on{color:var(--red2);box-shadow:inset 0 3px 0 var(--red2)}
-/* telegram banner slide (tap opens the S_19 Telegram channel) */
-.car-telegram{background:linear-gradient(135deg,rgba(42,167,219,.22),transparent 65%)}
 /* JOIN OUR COMMUNITY — Telegram button (black + red app, blue Telegram button) */
 .community-sec{margin-top:12px}
 .community-title{font-size:11px;font-weight:800;letter-spacing:2px;color:#999;text-align:center;margin-bottom:8px}
