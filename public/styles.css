@@ -233,8 +233,9 @@ h3{font-size:14px;margin-bottom:6px}
 /* profile page (ZVY-style layout, own S_19 branding) */
 .profile-head{text-align:center;padding:16px 0 4px}
 .avatar-wrap{position:relative;width:112px;height:112px;margin:0 auto}
-.avatar-img{width:112px;height:112px;border-radius:50%;object-fit:cover;border:3px dashed var(--red);box-shadow:0 0 26px rgba(229,9,20,.45);background:#1a1a1a}
-.avatar-cam{position:absolute;right:2px;bottom:6px;width:34px;height:34px;border-radius:50%;background:var(--red);border:2px solid #0a0a0a;color:#fff;font-size:15px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 0 14px rgba(229,9,20,.7)}
+.avatar-ring{position:absolute;inset:-7px;border:3px dashed var(--red);border-radius:50%;box-shadow:0 0 26px rgba(229,9,20,.45);animation:spin 8s linear infinite;pointer-events:none}
+.avatar-img{width:112px;height:112px;border-radius:50%;object-fit:cover;background:#1a1a1a}
+.avatar-cam{position:absolute;right:2px;bottom:6px;width:34px;height:34px;border-radius:50%;background:var(--red);border:2px solid #0a0a0a;color:#fff;font-size:15px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 0 14px rgba(229,9,20,.7);z-index:2}
 .avatar-cam:active{transform:scale(.92)}
 .profile-name{font-size:24px;font-weight:800;margin-top:12px;letter-spacing:.5px}
 .profile-chips{display:flex;gap:8px;justify-content:center;margin-top:10px;flex-wrap:wrap}
