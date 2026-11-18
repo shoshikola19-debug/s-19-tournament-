@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS tournaments (
   per_kill_points INTEGER NOT NULL DEFAULT 0,
   room_id TEXT NOT NULL DEFAULT '',
   room_password TEXT NOT NULL DEFAULT '',
-  status TEXT NOT NULL DEFAULT 'upcoming'
+  status TEXT NOT NULL DEFAULT 'upcoming',
+  paused_from TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS bookings (
   id INTEGER PRIMARY KEY,
@@ -162,6 +163,8 @@ async function init() {
     try { await pgPool.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS banned INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
     // Migration: free pass used on a booking.
     try { await pgPool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS used_pass TEXT NOT NULL DEFAULT ''`); } catch (e) {}
+    // Migration: pause/resume — status before a match was paused (resume restores it).
+    try { await pgPool.query(`ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS paused_from TEXT NOT NULL DEFAULT ''`); } catch (e) {}
     engine = 'postgres';
     return engine;
   }
@@ -187,6 +190,8 @@ async function init() {
   try { sqliteDb.exec(`ALTER TABLE profiles ADD COLUMN banned INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
   // Migration: free pass used on a booking.
   try { sqliteDb.exec(`ALTER TABLE bookings ADD COLUMN used_pass TEXT NOT NULL DEFAULT ''`); } catch (e) {}
+  // Migration: pause/resume — status before a match was paused (resume restores it).
+  try { sqliteDb.exec(`ALTER TABLE tournaments ADD COLUMN paused_from TEXT NOT NULL DEFAULT ''`); } catch (e) {}
   engine = 'sqlite';
   return engine;
 }
