@@ -2,6 +2,8 @@
 'use strict';
 const TELEGRAM_URL = 'https://t.me/S_19Tournament';
 window.openTelegram = () => window.open(TELEGRAM_URL, '_blank', 'noopener');
+const WHATSAPP_URL = 'https://whatsapp.com/channel/0029VbEa1cW6GcG8OPN7Pg0O';
+window.openWhatsApp = () => window.open(WHATSAPP_URL, '_blank', 'noopener');
 const $ = (s, el) => (el || document).querySelector(s);
 const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
 const app = $('#app');
@@ -552,6 +554,7 @@ function playHTML() {
   <div class="community-sec">
     <div class="community-title">JOIN OUR COMMUNITY</div>
     <button class="tg-btn" onclick="openTelegram()"><span class="tg-ic">✈️</span><span class="tg-tx"><b>Join Telegram Channel</b><span>Match updates, results &amp; announcements</span></span><span class="tg-arrow">›</span></button>
+    <button class="wa-btn" onclick="openWhatsApp()"><span class="tg-ic">💬</span><span class="tg-tx"><b>Join WhatsApp Channel</b><span>Match updates, results &amp; announcements</span></span><span class="tg-arrow">›</span></button>
   </div>
   <div class="cat-cards">
     ${[['br', 'BR MATCH', 'BR MATCHES', 'Solo • Duo • Esports PRO'], ['cs', 'CS MATCH', 'CS MATCHES', '4v4 • 1v1 • Headshot Only'], ['lw', 'LONE WOLF MATCH', 'LW MATCHES', '1v1 • 2v2 • Lose To Win • Headshot Only']].map(([c, shield, lb, sub]) => { const n = tournaments.filter((m) => m.category === c && m.status === 'upcoming').length; return `<button class="cat-card cat-${c}" onclick="openCategory('${c}')">
@@ -1009,6 +1012,7 @@ function profileHTML() {
     ${menuRow('🎡', 'Daily Spin', profile && profile.spunToday ? 'Already spun today — come back tomorrow' : 'Spin to win free match passes', 'openSpin()')}
     ${menuRow('📊', 'Leaderboard', 'Top players & your rank', "view='results';render()")}
     ${menuRow('✈️', 'Telegram Channel', 'Match updates & announcements', 'openTelegram()')}
+    ${menuRow('💬', 'WhatsApp Channel', 'Match updates & announcements', 'openWhatsApp()')}
     ${profile && profile.isAdmin ? menuRow('⚙️', 'Admin Panel', 'Create rooms, approve payments & results', "view='admin';render()") : ''}
     ${menuRow('👨‍💻', 'Developer Profile', 'About S_19', 'devProfile()')}
     ${menuRow('🔄', 'Switch Account', 'Login with another account', 'switchAccount()')}
