@@ -230,8 +230,8 @@ async function seed() {
     [1, p.accountId, p.username, p.email, p.phone, p.ign, p.uid, null, null, now]);
   for (const t of seed.tournaments) {
     await db.run(
-      'INSERT INTO tournaments (id, title, category, subcategory, mode, match_type, map, pov, match_date, match_time, total_slots, entry_fee, prize_pool, per_kill_prize, per_kill_points, room_id, room_password, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      [t.id, t.title, t.category, t.subcategory, t.mode, t.matchType, t.map, t.pov, t.matchDate, t.matchTime, t.totalSlots, t.entryFee, t.prizePool, t.perKillPrize, t.perKillPoints, t.roomId, t.roomPassword, t.status]);
+      'INSERT INTO tournaments (id, title, category, subcategory, mode, match_type, map, pov, match_date, match_time, total_slots, entry_fee, prize_pool, per_kill_prize, per_kill_points, room_id, room_password, status, paused_from) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      [t.id, t.title, t.category, t.subcategory, t.mode, t.matchType, t.map, t.pov, t.matchDate, t.matchTime, t.totalSlots, t.entryFee, t.prizePool, t.perKillPrize, t.perKillPoints, t.roomId, t.roomPassword, t.status, '']);
   }
   for (const w of seed.walletTransactions) {
     await db.run(
@@ -791,6 +791,31 @@ app.post('/api/tournaments/:id/status', adminAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// Pause / resume: an upcoming or live match can be paused — nobody can
+// join while it is paused — and Resume puts it back exactly where it was
+// (upcoming stays upcoming, live stays live). paused_from remembers the
+// status from before the pause; it is NOT a player-facing field.
+app.post('/api/tournaments/:id/pause', adminAuth, async (req, res) => {
+  const t = await db.get('SELECT * FROM tournaments WHERE id = ?', [req.params.id]);
+  if (!t) return res.status(404).json({ ok: false, error: 'Match not found' });
+  if (t.status !== 'upcoming' && t.status !== 'live') {
+    return res.status(400).json({ ok: false, error: 'Only an upcoming or live match can be paused' });
+  }
+  await db.run("UPDATE tournaments SET status = 'paused', paused_from = ? WHERE id = ?", [t.status, t.id]);
+  res.json({ ok: true });
+});
+
+app.post('/api/tournaments/:id/resume', adminAuth, async (req, res) => {
+  const t = await db.get('SELECT * FROM tournaments WHERE id = ?', [req.params.id]);
+  if (!t) return res.status(404).json({ ok: false, error: 'Match not found' });
+  if (t.status !== 'paused') {
+    return res.status(400).json({ ok: false, error: 'Only a paused match can be resumed' });
+  }
+  const back = (t.paused_from === 'upcoming' || t.paused_from === 'live') ? t.paused_from : 'upcoming';
+  await db.run("UPDATE tournaments SET status = ?, paused_from = '' WHERE id = ?", [back, t.id]);
+  res.json({ ok: true, status: back });
+});
+
 app.post('/api/tournaments/:id/cancel', adminAuth, async (req, res) => {
   const t = await db.get('SELECT * FROM tournaments WHERE id = ?', [req.params.id]);
   if (!t) return res.status(404).json({ ok: false, error: 'Match not found' });
@@ -813,6 +838,7 @@ app.post('/api/tournaments/:id/book', auth, async (req, res) => {
     if (req.profile.banned) return res.status(403).json({ ok: false, error: 'This account is banned' });
     const t = await db.get('SELECT * FROM tournaments WHERE id = ?', [req.params.id]);
     if (!t) return res.status(404).json({ ok: false, error: 'Match not found' });
+    if (t.status === 'paused') return res.status(400).json({ ok: false, error: 'This match is paused' });
     if (t.status !== 'upcoming') return res.status(400).json({ ok: false, error: 'This match is not open for joining' });
     if (matchStarted(t)) return res.status(400).json({ ok: false, error: 'Match already started' });
     const { slotNumber, slotNumbers, playerName, playerNames, squadNames, usePass } = req.body || {};
