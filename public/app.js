@@ -1,5 +1,7 @@
 // S_19 TOURNAMENT — client app (single-page, black + red, English UI)
 'use strict';
+const TELEGRAM_URL = 'https://t.me/S_19Tournament';
+window.openTelegram = () => window.open(TELEGRAM_URL, '_blank', 'noopener');
 const $ = (s, el) => (el || document).querySelector(s);
 const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
 const app = $('#app');
@@ -536,9 +538,9 @@ function playHTML() {
       <div class="car-ic">🎧</div>
       <div><b>Need any Help?</b><div class="car-sub">Customer Support 24/7 — tap here to contact the admin.</div></div>
     </div>
-    <div class="car-slide car-telegram" onclick="openSupport()">
+    <div class="car-slide car-telegram" onclick="openTelegram()">
       <div class="car-ic">✈️</div>
-      <div><b>S_19 on Telegram</b><div class="car-sub">Match updates &amp; announcements — tap to contact Support.</div></div>
+      <div><b>S_19 on Telegram</b><div class="car-sub">Match updates &amp; announcements — tap to join the channel.</div></div>
     </div>
     <div class="car-dots"><button class="car-dot on" onclick="bannerGo(0)" aria-label="Slide 1"></button><button class="car-dot" onclick="bannerGo(1)" aria-label="Slide 2"></button><button class="car-dot" onclick="bannerGo(2)" aria-label="Slide 3"></button></div>
   </div>
@@ -546,6 +548,10 @@ function playHTML() {
     <span class="help-ic">🎧<i class="help-dot"></i></span>
     <span class="help-txt"><b>Need any Help?</b><span>● Customer Support</span></span>
     <button class="help-contact" onclick="openSupport()">Contact ›</button>
+  </div>
+  <div class="community-sec">
+    <div class="community-title">JOIN OUR COMMUNITY</div>
+    <button class="tg-btn" onclick="openTelegram()"><span class="tg-ic">✈️</span><span class="tg-tx"><b>Join Telegram Channel</b><span>Match updates, results &amp; announcements</span></span><span class="tg-arrow">›</span></button>
   </div>
   <div class="cat-cards">
     ${[['br', 'BR MATCH', 'BR MATCHES', 'Solo • Duo • Esports PRO'], ['cs', 'CS MATCH', 'CS MATCHES', '4v4 • 1v1 • Headshot Only'], ['lw', 'LONE WOLF MATCH', 'LW MATCHES', '1v1 • 2v2 • Lose To Win • Headshot Only']].map(([c, shield, lb, sub]) => { const n = tournaments.filter((m) => m.category === c && m.status === 'upcoming').length; return `<button class="cat-card cat-${c}" onclick="openCategory('${c}')">
@@ -1002,6 +1008,7 @@ function profileHTML() {
     ${menuRow('📖', 'All Rules', 'Check gameplay guidelines', 'showNotice(1)')}
     ${menuRow('🎡', 'Daily Spin', profile && profile.spunToday ? 'Already spun today — come back tomorrow' : 'Spin to win free match passes', 'openSpin()')}
     ${menuRow('📊', 'Leaderboard', 'Top players & your rank', "view='results';render()")}
+    ${menuRow('✈️', 'Telegram Channel', 'Match updates & announcements', 'openTelegram()')}
     ${profile && profile.isAdmin ? menuRow('⚙️', 'Admin Panel', 'Create rooms, approve payments & results', "view='admin';render()") : ''}
     ${menuRow('👨‍💻', 'Developer Profile', 'About S_19', 'devProfile()')}
     ${menuRow('🔄', 'Switch Account', 'Login with another account', 'switchAccount()')}
