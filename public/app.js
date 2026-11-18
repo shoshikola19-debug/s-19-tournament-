@@ -1212,7 +1212,7 @@ const LW1V1_RULES = ['সন্দেহজনক User কে কোনো ন�
 function topbarHTML() {
   const upcomingMine = tournaments.filter((m) => (m.status === 'upcoming' || m.status === 'live' || m.status === 'paused') && m.bookings.some((b) => profile && b.profile_id === profile.id && (b.status === 'pending' || b.status === 'approved'))).length;
   return `<div class="topbar"><img class="logo-sm" src="/logo.webp" onerror="this.src='/icon-192.png'">
-  <div><b>${appNameHTML()}</b><div class="muted" style="font-size:10px">WELCOME BACK, ${esc(profile ? profile.username.toUpperCase() : 'PLAYER')} ${profile && profile.isAdmin ? '<span class="admin-badge">ADMIN</span>' : ''}</div></div>
+  <div><b>${appNameHTML()}</b><div class="muted" style="font-size:10px">WELCOME BACK, ${esc(profile ? profile.username.toUpperCase() : 'PLAYER')} ${profile && profile.isAdmin ? (profile.isOwner ? '<span class="admin-badge">ADMIN</span>' : '<span class="partner-badge">PARTNER</span>') : ''}</div></div>
   <div class="sp"></div>
   ${profile ? `<span class="id-chip">S_19 ID #${profile.accountId}</span>` : ''}
   <button class="bell-btn" onclick="view='mymatches';render()" aria-label="Notifications">🔔${upcomingMine ? `<span class="bell-count">${upcomingMine}</span>` : ''}</button>
@@ -1854,7 +1854,7 @@ function profileHTML() {
       <button class="avatar-cam" onclick="document.getElementById('avatar-input').click()" aria-label="Change photo">📷</button>
       <input type="file" id="avatar-input" accept="image/*" style="display:none" onchange="uploadAvatar(this)">
     </div>
-    <h2 class="profile-name">${esc(profile ? profile.username : '')}</h2>
+    <h2 class="profile-name">${esc(profile ? profile.username : '')} ${profile && profile.isAdmin ? (profile.isOwner ? '<span class="admin-badge">ADMIN</span>' : '<span class="partner-badge">PARTNER</span>') : ''}</h2>
     <div class="profile-chips">
       <button class="id-pill" onclick="copyS19Id()">S_19 ID #${profile ? profile.accountId : ''} <span class="copy-ic">📋</span></button>
       <button class="edit-pill" onclick="editProfile()">✏️ Edit Profile</button>
@@ -2070,9 +2070,9 @@ async function adminHTML() {
     <div id="as-err"></div>
     <button class="btn" style="margin-top:12px" onclick="saveAppSettings()">Save App Settings</button></div>
   <div class="card"><h3>👥 Players (${players.length})</h3>
-  ${players.length ? players.map((p) => `<div class="kv"><span>${esc(p.username)} · S_19 ID #${p.accountId}${p.banned ? ' · <b style="color:#ff5b63">BANNED</b>' : ''} · ${esc(p.phone || '—')} · Deposit ৳${p.depositBalance} · Winning ৳${p.winningBalance}</span>${p.isAdmin ? '<span class="muted">Owner</span>' : `<button class="btn-ghost btn-sm" onclick="toggleBan(${p.id},${p.banned ? 'false' : 'true'})">${p.banned ? 'Unban' : 'Ban'}</button>`}</span></div>`).join('')
+  ${players.length ? players.map((p) => `<div class="kv"><span>${esc(p.username)} · S_19 ID #${p.accountId}${p.isAdmin && !p.isOwner ? ' · <b class="partner-badge">PARTNER</b>' : ''}${p.banned ? ' · <b style="color:#ff5b63">BANNED</b>' : ''} · ${esc(p.phone || '—')} · Deposit ৳${p.depositBalance} · Winning ৳${p.winningBalance}</span><span style="display:flex;gap:6px;flex-wrap:wrap">${p.isOwner ? '<span class="muted">Owner</span>' : `${p.isAdmin ? `<button class="btn-ghost btn-sm" onclick="togglePartner(${p.id},'${esc(p.username)}',false)">Remove Partner</button>` : `<button class="btn-ghost btn-sm" onclick="togglePartner(${p.id},'${esc(p.username)}',true)">Make Partner</button>`}<button class="btn-ghost btn-sm" onclick="toggleBan(${p.id},${p.banned ? 'false' : 'true'})">${p.banned ? 'Unban' : 'Ban'}</button>`}</span></div>`).join('')
     : '<p class="muted">No players yet.</p>'}
-  <p class="muted">A banned player cannot login or join matches.</p></div>
+  <p class="muted">A banned player cannot login or join matches. Partners get the full Admin Panel, like the owner — the owner can never be removed as partner or banned.</p></div>
   <h3 style="margin-top:20px">Matches (${adminTournaments.length})</h3>
   ${adminTournaments.map((m) => `<div class="card"><b>${esc(m.title)}</b> <span class="badge">#${m.id}</span>
     <div class="muted">${esc(m.matchDate)} ${esc(m.matchTime)} · ${m.status === 'paused' ? '⏸ Paused' : esc(m.status)} · ${m.bookings.filter((b) => b.status === 'pending' || b.status === 'approved').length}/${m.totalSlots} booked · Room: ${m.roomId || '—'}</div>
@@ -2184,6 +2184,13 @@ window.toggleBan = async (id, banned) => {
     if (banned && !confirm('Ban this player? They will not be able to login or join matches.')) return;
     await api(`/api/admin/players/${id}/ban`, { method: 'POST', body: JSON.stringify({ banned }) });
     render(); toast(banned ? 'Player banned' : 'Player unbanned');
+  } catch (e) { toast(e.message); }
+};
+window.togglePartner = async (id, username, make) => {
+  try {
+    if (!confirm(make ? `Make ${username} a partner? They will get the full Admin Panel.` : `Remove ${username} as partner? They will lose Admin Panel access.`)) return;
+    await api(`/api/admin/players/${id}/${make ? 'promote' : 'demote'}`, { method: 'POST' });
+    render(); toast(make ? `${username} is now a partner` : `${username} is no longer a partner`);
   } catch (e) { toast(e.message); }
 };
 window.editMatch = (id) => {
