@@ -264,7 +264,7 @@ function withdrawInfoText() {
   return `Minimum ৳${min}. Open ${fmtClockMins(st)} – ${fmtClockMins(en)} Dhaka time.`;
 }
 let view = 'landing', category = 'br', subcategory = 'Solo', myFilter = 'all';
-let selectedMatch = null, selectedSlot = 0;
+let selectedMatch = null, selectedSlots = [], joinNames = [];
 // Daily Spin wheel state (server decides the result; the wheel only animates to it).
 let spinState = null, spinRotation = 0, spinBusy = false, spinTimer = null;
 const SPIN_SEGMENTS = [
@@ -370,7 +370,7 @@ window.openTutorial = () => openModal(`<h2>▶ Tutorial — How to Join a Match<
     <li><b>Register</b> with your username, email, phone and password, then add your exact Free Fire in-game name and UID in Edit Profile.</li>
     <li><b>Add Money</b> from Wallet — send to the owner's bKash / Nagad / Rocket number, paste the TrxID, and wait for owner approval.</li>
     <li><b>Pick a match</b> from BR, CS or LW, then tap <b>Join Now</b>.</li>
-    <li><b>Pick a free slot</b> — taken slots are crossed out. Then enter your exact in-game name.</li>
+    <li><b>Pick a free slot</b> (BR/LW) — taken slots are crossed out. In CS matches your slot is assigned automatically. Then enter your exact in-game name.</li>
     <li><b>Tick the rules box</b> and tap <b>I Agree and Confirm</b>. The entry fee is charged from your Deposit Balance.</li>
     <li><b>Wait for approval</b> — check My Matches. Room ID &amp; Password appear in Room Details <b>5 minutes before</b> the match starts.</li>
     <li><b>Enter the room</b> from Observer to your own slot, and keep screen recording on until the match starts.</li>
@@ -420,20 +420,42 @@ function bindBannerSwipe() {
     if (bannerSwipeUsed) { e.preventDefault(); e.stopPropagation(); bannerSwipeUsed = false; }
   }, true);
 }
-function isTeamMatch(m) {
-  if (!m) return false;
-  if (m.category === 'cs' && (m.subcategory === '4v4' || m.subcategory === 'Headshot Only')) return true;
-  if (m.category === 'lw' && m.subcategory === '2v2') return true;
-  if (m.category === 'br' && (m.subcategory === 'Duo' || m.subcategory === 'Esports PRO')) return true;
-  return false;
+// Join flow per category (ZVY) — one flow does NOT fit all categories:
+// BR/LW = 4 steps (slot → name → rules → confirm); CS = 3 steps
+// (name → rules → confirm), no slot picker — the server auto-assigns the slot.
+// Screenshot-verified: BR Solo, BR Duo, CS 4v4, CS Headshot Only, CS 1v1.
+// Assumed by pattern (NOT screenshot-verified): BR Esports PRO like BR Solo
+// (1 slot); LW 1v1 / Lose To Win / LW Headshot Only like BR Solo (1 slot);
+// LW 2v2 like BR Duo (1–2 slots).
+function joinFlowOf(m) {
+  if (!m) return { steps: 4, picker: true, maxSlots: 1 };
+  // Slot picker (4 steps): BR Solo, BR Duo, BR E-Sports PRO (Squad, up to
+  // 4 slots), CS Headshot Only and LW Headshot Only (both 2v2 Duo, up to
+  // 2 slots). Every other subcategory auto-assigns a free slot (3 steps):
+  // CS 4v4, CS 1v1, LW 1v1, LW 2v2, Lose To Win. ALL 10 subcategories are
+  // now verified by ZVY screenshots — no assumptions left.
+  if (m.category === 'br') {
+    // BR Solo: 1 slot; BR Duo: up to 2; BR E-Sports PRO (Squad): up to 4.
+    return { steps: 4, picker: true, maxSlots: m.subcategory === 'Duo' ? 2 : (m.subcategory === 'Esports PRO' ? 4 : 1) };
+  }
+  if (m.subcategory === 'Headshot Only') return { steps: 4, picker: true, maxSlots: 2 };
+  return { steps: 3, picker: false, maxSlots: 1 };
 }
-function teamSizeOf(m) {
-  if (!m) return 1;
-  if (m.category === 'cs' && (m.subcategory === '4v4' || m.subcategory === 'Headshot Only')) return 4;
-  if (m.category === 'br' && m.subcategory === 'Esports PRO') return 4;
-  if (m.category === 'lw' && m.subcategory === '2v2') return 2;
-  if (m.category === 'br' && m.subcategory === 'Duo') return 2;
-  return 1;
+function rulesIdFor(m) {
+  if (!m) return 'br-solo';
+  if (m.category === 'br') return m.subcategory === 'Duo' ? 'br-duo' : (m.subcategory === 'Esports PRO' ? 'br-pro' : 'br-solo');
+  if (m.category === 'cs') return m.subcategory === '1v1' ? 'cs-1v1' : (m.subcategory === 'Headshot Only' ? 'cs-headshot' : 'cs');
+  return m.subcategory === '2v2' ? 'lw-2v2' : (m.subcategory === 'Lose To Win' ? 'lose-to-win' : (m.subcategory === 'Headshot Only' ? 'lw-headshot' : 'lw-1v1'));
+}
+function joinDots(step) {
+  const total = joinFlowOf(selectedMatch).steps;
+  let h = '<div class="step-dots">';
+  for (let i = 1; i <= total; i++) {
+    const cls = i < step ? 'step-dot done' : (i === step ? 'step-dot on' : 'step-dot');
+    h += `<span class="${cls}">${i < step ? '✓' : i}</span>`;
+    if (i < total) h += `<i class="step-line${i < step ? ' done' : ''}"></i>`;
+  }
+  return h + '</div>';
 }
 function squadList(b) {
   try { const a = JSON.parse(b.squad_names || '[]'); return Array.isArray(a) ? a : []; }
@@ -1231,7 +1253,7 @@ function matchCard(m) {
     ${rulesLine}
     <div class="tiles">
       ${tile('🏆', 'ic-gold', 'PRIZE', m.prizePool + ' TK', true)}
-      ${tile('👤', 'ic-blue', 'TYPE', esc(m.subcategory), false)}
+      ${tile('👤', 'ic-blue', 'TYPE', m.subcategory === 'Headshot Only' ? 'Duo' : (m.category === 'br' ? (m.subcategory === 'Esports PRO' ? 'Squad' : esc(m.subcategory)) : 'Solo'), false)}
       ${tile('🪙', 'ic-green', 'FEE', m.entryFee + ' TK', false)}
       ${tile('💀', 'ic-red', 'KILL', m.perKillPrize + ' TK', false)}
       ${tile('🗺️', 'ic-teal', 'MAP', esc(m.map), false)}
@@ -1239,7 +1261,7 @@ function matchCard(m) {
     </div>
     <div class="reg-row"><span class="reg-label">👥 Registration</span><b>${taken}/${m.totalSlots}</b></div>
     <div class="regbar"><i style="width:${pct}%"></i></div>
-    <button class="btn join-btn ${full ? 'btn-full' : ''}" ${m.status !== 'upcoming' || full ? 'disabled' : ''} onclick="openSlots(${m.id})">${full ? 'Match Full' : '🚀 Join Now'}</button>
+    <button class="btn join-btn ${full ? 'btn-full' : ''}" ${m.status !== 'upcoming' || full ? 'disabled' : ''} onclick="startJoin(${m.id})">${full ? 'Match Full' : '🚀 Join Now'}</button>
     <div class="row3">
       <button class="btn" onclick="openSlots(${m.id})">👥 Slots</button>
       <button class="btn" onclick="openRoom(${m.id})">🚪 Room</button>
@@ -1382,33 +1404,78 @@ window.openRoom = (id) => {
   <button class="btn" style="margin-top:14px" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(m.roomId)}');toast('Room ID copied')">Copy Room ID</button>
   <button class="btn-ghost" style="margin-top:8px" onclick="closeModal()">Close</button>`);
 };
+// Entry point from the Join Now button: CS skips the slot picker (step 1 is the
+// name screen); BR/LW start at the slot picker.
+window.startJoin = (id) => {
+  selectedMatch = tournaments.find((x) => x.id === id);
+  if (!selectedMatch) return;
+  selectedSlots = [];
+  joinNames = [];
+  if (joinFlowOf(selectedMatch).picker) showJoinSlots();
+  else showJoinName();
+};
+// Slots button on a match card: picker categories open the picker (join step 1);
+// CS 4v4 has no picker — it just shows which slots are taken.
 window.openSlots = (id) => {
   selectedMatch = tournaments.find((x) => x.id === id);
-  selectedSlot = 0;
+  if (!selectedMatch) return;
+  if (!joinFlowOf(selectedMatch).picker) {
+    // CS 4v4 has no picker — the Slots button just shows which slots are taken.
+    const taken = new Set(selectedMatch.bookings.filter((b) => b.status === 'pending' || b.status === 'approved').map((b) => b.slot_number));
+    const grid = `<div class="slotgrid">${Array.from({ length: selectedMatch.totalSlots }, (_, i) => { const n = i + 1; return `<button class="slot ${taken.has(n) ? 'taken' : ''}" disabled>${n}</button>`; }).join('')}</div>`;
+    openModal(`<h2>Slots</h2><p class="slots-title">Available Slots</p>${grid}
+    <p class="muted center" style="margin-top:12px">Your slot is assigned automatically when you join a CS match.</p>
+    <button class="btn" style="margin-top:14px" onclick="closeModal()">Close</button>`);
+    return;
+  }
+  selectedSlots = [];
+  joinNames = [];
+  showJoinSlots();
+};
+function showJoinSlots() {
   const taken = new Set(selectedMatch.bookings.filter((b) => b.status === 'pending' || b.status === 'approved').map((b) => b.slot_number));
   const myBooking = selectedMatch.bookings.find((b) => profile && b.profile_id === profile.id && (b.status === 'pending' || b.status === 'approved'));
   const slotBtn = (n) => `<button class="slot ${taken.has(n) ? 'taken' : ''}" ${taken.has(n) ? 'disabled' : ''} onclick="selectSlot(${n},this)">${n}</button>`;
-  const teamOf = (label, nums) => `<div class="team-box"><div class="team-title">${label}</div><div class="slotgrid">${nums.map(slotBtn).join('')}</div></div>`;
-  const isTeam = isTeamMatch(selectedMatch);
-  // Team boxes split the total slots half/half (odd total: Team 1 gets the extra one),
-  // so custom slot counts still render correctly.
-  const half = Math.ceil(selectedMatch.totalSlots / 2);
-  const grid = isTeam
-    ? teamOf('Team 1', Array.from({ length: half }, (_, i) => i + 1)) + teamOf('Team 2', Array.from({ length: selectedMatch.totalSlots - half }, (_, i) => half + i + 1))
-    : `<div class="slotgrid">${Array.from({ length: selectedMatch.totalSlots }, (_, i) => slotBtn(i + 1)).join('')}</div>`;
+  const flow = joinFlowOf(selectedMatch);
+  let grid;
+  if (flow.maxSlots > 1) {
+    // Team boxes of maxSlots slots each: Duo / Headshot 2v2 pairs (1–2,
+    // 3–4, …); BR E-Sports PRO Squad boxes of 4 (1–4, 5–8, …).
+    const boxSize = flow.maxSlots;
+    const teamCount = Math.ceil(selectedMatch.totalSlots / boxSize);
+    const teamOf = (ti) => {
+      const nums = Array.from({ length: Math.min(boxSize, selectedMatch.totalSlots - ti * boxSize) }, (_, i) => ti * boxSize + i + 1);
+      return `<div class="team-box"><div class="team-title">${ti + 1}</div><div class="slotgrid team-slots">${nums.map(slotBtn).join('')}</div></div>`;
+    };
+    grid = `<div class="team-grid">${Array.from({ length: teamCount }, (_, ti) => teamOf(ti)).join('')}</div>`;
+  } else {
+    grid = `<div class="slotgrid">${Array.from({ length: selectedMatch.totalSlots }, (_, i) => slotBtn(i + 1)).join('')}</div>`;
+  }
   openModal(`<h2>Select a Slot</h2>
-  <div class="step-dots"><span class="step-dot on">1</span><i class="step-line"></i><span class="step-dot">2</span><i class="step-line"></i><span class="step-dot">3</span><i class="step-line"></i><span class="step-dot">4</span></div>
+  ${joinDots(1)}
   <p class="slots-title">Available Slots</p>
   ${myBooking ? `<div class="okmsg">You already booked slot ${myBooking.slot_number} (${myBooking.status}).</div>` : ''}
   ${grid}
   <div id="slot-err"></div>
-  <button class="btn btn-proceed" id="join-proceed" style="margin-top:16px" disabled onclick="proceedJoin()">PROCEED</button>`);
-};
+  <button class="btn btn-proceed" id="join-proceed" style="margin-top:16px" disabled onclick="showJoinName()">PROCEED</button>`);
+}
 window.selectSlot = (n, el) => {
-  selectedSlot = n;
-  $$('.slot').forEach((s) => s.classList.remove('sel'));
-  el.classList.add('sel');
-  const pb = $('#join-proceed'); if (pb) pb.disabled = false;
+  const max = joinFlowOf(selectedMatch).maxSlots;
+  if (max === 1) {
+    // Solo: tapping another slot moves the pick.
+    $$('.slot').forEach((s) => s.classList.remove('sel'));
+    selectedSlots = [n];
+    el.classList.add('sel');
+  } else {
+    // Duo / 2v2: each slot taps on/off on its own, up to max slots.
+    const i = selectedSlots.indexOf(n);
+    if (i >= 0) { selectedSlots.splice(i, 1); el.classList.remove('sel'); }
+    else {
+      if (selectedSlots.length >= max) { toast(`You can pick up to ${max} slots in this match`); return; }
+      selectedSlots.push(n); el.classList.add('sel');
+    }
+  }
+  const pb = $('#join-proceed'); if (pb) pb.disabled = selectedSlots.length === 0;
 };
 function passForMatch(m) {
   if (!profile || !profile.passes || !m) return null;
@@ -1417,46 +1484,86 @@ function passForMatch(m) {
   if (profile.passes.all > 0) return { type: 'all', count: profile.passes.all, label: 'All Match' };
   return null;
 }
-window.proceedJoin = () => {
-  if (!selectedSlot) { $('#slot-err').innerHTML = '<div class="err">Pick a slot first</div>'; return; }
-  const teamSize = teamSizeOf(selectedMatch);
-  const squadFields = isTeamMatch(selectedMatch)
-    ? `<div class="squad-box"><b>👥 Join with Squad (optional)</b>
-      <p class="muted">Playing as a squad? Add your teammates' in-game names — they will be saved with your booking.</p>
-      ${Array.from({ length: teamSize - 1 }, (_, i) => `<div class="field"><label>Teammate ${i + 2} in-game name (optional)</label><input id="f-squad-${i + 1}" placeholder="Teammate ${i + 2} name"></div>`).join('')}
-    </div>` : '';
-  // Free pass won on the Daily Spin wheel: category pass first, else All pass.
-  const passInfo = passForMatch(selectedMatch);
-  const passBox = passInfo ? `<div class="squad-box"><label style="display:flex;gap:8px;font-size:13px;align-items:flex-start"><input type="checkbox" id="f-usepass" style="width:auto;margin-top:2px"> <span>🎟️ <b>Use free pass</b> — you have ${passInfo.count} ${passInfo.label} pass${passInfo.count > 1 ? 'es' : ''}. Entry fee will be <b>৳0</b>.</span></label></div>` : '';
+// Name step: BR/LW step 2, CS step 1. One name box per slot picked
+// (CS: just Player 1 — the slot is auto-assigned later).
+window.showJoinName = () => {
+  const flow = joinFlowOf(selectedMatch);
+  if (flow.picker && !selectedSlots.length) { $('#slot-err').innerHTML = '<div class="err">Pick a slot first</div>'; return; }
+  const nameCount = flow.picker ? selectedSlots.length : 1;
+  const step = flow.picker ? 2 : 1;
   const depBal = wallet ? wallet.depositBalance : 0;
+  const fields = Array.from({ length: nameCount }, (_, i) => `<div class="field"><label>Player ${i + 1}</label><input id="f-player-${i + 1}" placeholder="Enter Name" value="${i === 0 ? esc(profile ? profile.ign : '') : ''}"></div>`).join('');
   openModal(`<h2>Enter Player Name</h2>
-  <div class="step-dots"><span class="step-dot done">✓</span><i class="step-line done"></i><span class="step-dot on">2</span><i class="step-line"></i><span class="step-dot">3</span><i class="step-line"></i><span class="step-dot">4</span></div>
+  ${joinDots(step)}
   <p class="muted">Join only with your own registered in-game name. Only the registered player may play — inviting an unregistered player means a permanent ban.</p>
-  <div class="field"><label>Player 1</label><input id="f-playername" placeholder="Enter Name" value="${esc(profile ? profile.ign : '')}"></div>
+  ${fields}
   <div class="balance-card"><span class="balance-ic"><svg viewBox="0 0 24 24" width="24" height="24"><path fill="#ff2b2b" d="M21 7H5a1 1 0 0 1 0-2h16V3H5a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1zm-4 8a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg></span><span class="balance-tx"><span>YOUR BALANCE</span><b>${depBal} <i>TK</i></b></span></div>
-  ${squadFields}
-  ${passBox}
-  <label style="display:flex;gap:8px;margin-top:14px;font-size:13px"><input type="checkbox" id="f-agree" style="width:auto"> I have read the match rules</label>
+  <div id="join-err"></div>
+  <button class="btn" style="margin-top:16px" onclick="showJoinRules()">PROCEED</button>`);
+};
+// Rules step: BR/LW step 3, CS step 2. Short rules preview + agree tick;
+// PROCEED stays disabled until the box is ticked.
+window.showJoinRules = () => {
+  const flow = joinFlowOf(selectedMatch);
+  const nameCount = flow.picker ? selectedSlots.length : 1;
+  const names = [];
+  for (let i = 0; i < nameCount; i++) {
+    const el = $('#f-player-' + (i + 1));
+    names.push(el ? el.value.trim() : '');
+  }
+  if (names.some((n) => !n)) { $('#join-err').innerHTML = '<div class="err">Enter a name for every player</div>'; return; }
+  joinNames = names;
+  const step = flow.picker ? 3 : 2;
+  const rules = MATCH_RULES.find((x) => x.id === rulesIdFor(selectedMatch)) || MATCH_RULES[0];
+  const preview = rules.lines.slice(0, 6).map((r) => `<li>${esc(r)}</li>`).join('');
+  openModal(`<h2>Match Rules</h2>
+  ${joinDots(step)}
+  <h3 style="margin-top:14px">${esc(rules.label)} Rules</h3>
+  <ol class="rulelist">${preview}</ol>
+  ${rules.lines.length > 6 ? `<p class="muted">…and ${rules.lines.length - 6} more — see Profile → All Rules for the full list.</p>` : ''}
+  <label style="display:flex;gap:8px;margin-top:14px;font-size:13px"><input type="checkbox" id="f-agree" style="width:auto" onchange="const b=document.getElementById('rules-proceed');if(b)b.disabled=!this.checked"> I have read the match rules</label>
+  <button class="btn btn-proceed" id="rules-proceed" style="margin-top:16px" disabled onclick="showJoinConfirm()">PROCEED</button>`);
+};
+// Confirm step: BR/LW step 4, CS step 3. Fee summary + free-pass option.
+window.showJoinConfirm = () => {
+  const flow = joinFlowOf(selectedMatch);
+  const n = flow.picker ? selectedSlots.length : 1;
+  const passInfo = passForMatch(selectedMatch);
+  const slotTxt = flow.picker ? selectedSlots.join(', ') : 'Auto-assigned (next free slot)';
+  openModal(`<h2>Confirm Join</h2>
+  ${joinDots(flow.steps)}
+  <div style="margin-top:14px">
+    <div class="kv"><span>Match</span><b>${esc(selectedMatch.title)}</b></div>
+    <div class="kv"><span>Slot${n > 1 ? 's' : ''}</span><b>${slotTxt}</b></div>
+    <div class="kv"><span>Player${n > 1 ? 's' : ''}</span><b>${esc(joinNames.join(', '))}</b></div>
+    <div class="kv"><span>Entry Fee</span><b id="confirm-fee">৳${selectedMatch.entryFee * n}</b></div>
+    <div class="kv"><span>Your Balance</span><b>৳${wallet ? wallet.depositBalance : 0}</b></div>
+  </div>
+  ${passInfo ? `<div class="squad-box"><label style="display:flex;gap:8px;font-size:13px;align-items:flex-start"><input type="checkbox" id="f-usepass" style="width:auto;margin-top:2px" onchange="updateConfirmFee()"> <span>🎟️ <b>Use free pass</b> — you have ${passInfo.count} ${passInfo.label} pass${passInfo.count > 1 ? 'es' : ''}. One slot will be free.</span></label></div>` : ''}
   <div id="join-err"></div>
   <button class="btn" style="margin-top:16px" onclick="confirmJoin()">I Agree and Confirm</button>`);
 };
-window.confirmJoin = async () => {
-  if (!$('#f-agree').checked) { $('#join-err').innerHTML = '<div class="err">Tick the rules box first</div>'; return; }
-  const squadNames = [];
-  if (isTeamMatch(selectedMatch)) {
-    for (let i = 1; i < teamSizeOf(selectedMatch); i++) {
-      const el = $('#f-squad-' + i);
-      if (el && el.value.trim()) squadNames.push(el.value.trim());
-    }
-  }
+window.updateConfirmFee = () => {
+  const flow = joinFlowOf(selectedMatch);
+  const n = flow.picker ? selectedSlots.length : 1;
   const usePass = !!($('#f-usepass') && $('#f-usepass').checked);
+  const el = $('#confirm-fee');
+  if (el) el.textContent = '৳' + (selectedMatch.entryFee * (usePass ? n - 1 : n));
+};
+window.confirmJoin = async () => {
+  const flow = joinFlowOf(selectedMatch);
+  const usePass = !!($('#f-usepass') && $('#f-usepass').checked);
+  const body = flow.picker
+    ? { slotNumbers: selectedSlots, playerNames: joinNames, usePass }
+    : { playerNames: joinNames, usePass };
   try {
-    const d = await api(`/api/tournaments/${selectedMatch.id}/book`, { method: 'POST', body: JSON.stringify({ slotNumber: selectedSlot, playerName: $('#f-playername').value.trim(), squadNames, usePass }) });
+    const d = await api(`/api/tournaments/${selectedMatch.id}/book`, { method: 'POST', body: JSON.stringify(body) });
     await loadTournaments(); await loadMe();
+    const slotTxt = flow.picker ? `slot${selectedSlots.length > 1 ? 's' : ''} ${selectedSlots.join(', ')}` : `slot #${d.slots ? d.slots[0] : ''} (auto-assigned)`;
     openModal(`<h2>✅ Join Group</h2>
-    <p style="line-height:1.7;margin-top:10px">You booked <b>slot ${selectedSlot}</b> in <b>${esc(selectedMatch.title)}</b>. Your booking is pending owner approval.</p>
-    ${d.usedPass ? `<p style="line-height:1.7;margin-top:8px">🎟️ Joined free with your <b>${esc(d.usedPass.toUpperCase())} Match</b> pass — no entry fee charged.</p>` : ''}
-    ${squadNames.length ? `<p style="line-height:1.7;margin-top:8px">👥 <b>Your squad:</b> ${esc(squadNames.join(', '))}</p>` : ''}
+    <p style="line-height:1.7;margin-top:10px">You booked <b>${slotTxt}</b> in <b>${esc(selectedMatch.title)}</b>. Your booking is pending owner approval.</p>
+    ${d.usedPass ? `<p style="line-height:1.7;margin-top:8px">🎟️ Joined free with your <b>${esc(d.usedPass.toUpperCase())} Match</b> pass for one slot — no entry fee charged for that slot.</p>` : ''}
+    ${joinNames.length > 1 ? `<p style="line-height:1.7;margin-top:8px">👥 <b>Players:</b> ${esc(joinNames.join(', '))}</p>` : ''}
     <div class="warn">⚠ You will get the custom ID password 2 to 4 minutes before the match starts in the Room Details Button. Stay in the Join Group screen and wait.</div>
     <button class="btn" style="margin-top:14px" onclick="closeModal();view='mymatches';render()">Go to My Matches</button>`);
   } catch (e) { $('#join-err').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
