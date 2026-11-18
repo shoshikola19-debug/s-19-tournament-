@@ -253,8 +253,12 @@ h3{font-size:14px;margin-bottom:6px}
 .step-dot.on{background:var(--red);border-color:#fff;color:#fff;box-shadow:0 0 14px rgba(229,9,20,.6)}
 .step-dot.done{background:var(--red);border-color:var(--red);color:#fff}
 .team-box{margin-top:10px;border:1px solid var(--line);border-radius:14px;padding:10px;background:#141414}
-.team-title{font-weight:800;letter-spacing:1px;font-size:11px;color:var(--red2);margin-bottom:4px}
+.team-title{font-weight:700;font-size:11px;color:var(--mut);margin-bottom:6px;text-align:center}
 .team-box .slotgrid{margin-top:8px}
+/* join flow: team boxes (Duo / LW 2v2 pairs) */
+.team-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.team-grid .team-box{margin-top:0}
+.slotgrid.team-slots{grid-template-columns:repeat(2,1fr);margin-top:6px}
 /* match full */
 .btn-full{background:#2a2a2a !important;color:#888 !important;box-shadow:none !important}
 /* profile 4 tiles */
