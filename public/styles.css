@@ -213,8 +213,11 @@ h3{font-size:14px;margin-bottom:6px}
 /* JOIN OUR COMMUNITY — Telegram button (black + red app, blue Telegram button) */
 .community-sec{margin-top:12px}
 .community-title{font-size:11px;font-weight:800;letter-spacing:2px;color:#999;text-align:center;margin-bottom:8px}
-.tg-btn{display:flex;align-items:center;gap:12px;width:100%;background:linear-gradient(180deg,#2aabee,#229ed9);border:none;border-radius:16px;padding:13px 14px;color:#fff;cursor:pointer;box-shadow:0 4px 16px rgba(34,158,217,.4);text-align:left}
+.tg-btn{display:flex;align-items:center;gap:12px;width:100%;background:linear-gradient(180deg,#2aabee,#229ed9);border:none;border-radius:16px;padding:13px 14px;color:#fff;cursor:pointer;box-shadow:0 4px 16px rgba(34,158,217,.4);text-align:left;margin-bottom:8px}
 .tg-btn:active{transform:scale(.98)}
+/* WhatsApp button — same layout as Telegram, green WhatsApp gradient */
+.wa-btn{display:flex;align-items:center;gap:12px;width:100%;background:linear-gradient(180deg,#25d366,#1da851);border:none;border-radius:16px;padding:13px 14px;color:#fff;cursor:pointer;box-shadow:0 4px 16px rgba(37,211,102,.4);text-align:left}
+.wa-btn:active{transform:scale(.98)}
 .tg-ic{font-size:22px;flex:0 0 auto}
 .tg-tx{display:flex;flex-direction:column;gap:1px;flex:1;min-width:0}
 .tg-tx b{font-size:14px;letter-spacing:.5px}
