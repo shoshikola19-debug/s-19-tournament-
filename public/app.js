@@ -370,7 +370,7 @@ window.openTutorial = () => openModal(`<h2>▶ Tutorial — How to Join a Match<
     <li><b>Register</b> with your username, email, phone and password, then add your exact Free Fire in-game name and UID in Edit Profile.</li>
     <li><b>Add Money</b> from Wallet — send to the owner's bKash / Nagad / Rocket number, paste the TrxID, and wait for owner approval.</li>
     <li><b>Pick a match</b> from BR, CS or LW, then tap <b>Join Now</b>.</li>
-    <li><b>Pick a free slot</b> (BR/LW) — taken slots are crossed out. In CS matches your slot is assigned automatically. Then enter your exact in-game name.</li>
+    <li><b>Pick a free slot</b> (BR Solo, BR Duo, BR E-Sports PRO and Headshot Only matches) — taken slots are crossed out. In other matches your slot is assigned automatically. Then enter your exact in-game name.</li>
     <li><b>Tick the rules box</b> and tap <b>I Agree and Confirm</b>. The entry fee is charged from your Deposit Balance.</li>
     <li><b>Wait for approval</b> — check My Matches. Room ID &amp; Password appear in Room Details <b>5 minutes before</b> the match starts.</li>
     <li><b>Enter the room</b> from Observer to your own slot, and keep screen recording on until the match starts.</li>
@@ -1273,10 +1273,11 @@ function matchCard(m) {
 function playHTML() {
   return `${topbarHTML()}<div class="wrap">
   <div class="banner-carousel">
-    <div class="car-slide car-img on" onclick="openYouTube()"><img src="/banner-official.jpg" alt="S_19 Official — Voice of Bijoy YouTube channel"></div>
+    <div class="car-slide car-img on" onclick="view='rules';rulesTab='br-solo';render()"><img src="/banner-room-rules.jpg" alt="Room rules — how to enter a custom room"></div>
+    <div class="car-slide car-img" onclick="openYouTube()"><img src="/banner-official.jpg" alt="S_19 Official — Voice of Bijoy YouTube channel"></div>
     <div class="car-slide car-img" onclick="openTelegram()"><img src="/banner-telegram.jpg" alt="Join the S_19 Telegram channel"></div>
     <div class="car-slide car-img" onclick="openWhatsApp()"><img src="/banner-whatsapp.jpg" alt="Join the S_19 WhatsApp channel"></div>
-    <div class="car-dots"><button class="car-dot on" onclick="bannerGo(0)" aria-label="Slide 1"></button><button class="car-dot" onclick="bannerGo(1)" aria-label="Slide 2"></button><button class="car-dot" onclick="bannerGo(2)" aria-label="Slide 3"></button></div>
+    <div class="car-dots"><button class="car-dot on" onclick="bannerGo(0)" aria-label="Slide 1"></button><button class="car-dot" onclick="bannerGo(1)" aria-label="Slide 2"></button><button class="car-dot" onclick="bannerGo(2)" aria-label="Slide 3"></button><button class="car-dot" onclick="bannerGo(3)" aria-label="Slide 4"></button></div>
   </div>
   <div class="help-row">
     <span class="help-ic">🎧<i class="help-dot"></i></span>
