@@ -1301,7 +1301,7 @@ function categoryHTML() {
 function listHTML() {
   const list = tournaments.filter((m) => m.category === category && m.subcategory === subcategory);
   return `${topbarHTML()}<div class="wrap">
-  <div class="page-head"><button class="back-arrow" onclick="backToCategory()" aria-label="Back">←</button><h2>${SUB_META[category].labels[subcategory] || esc(subcategory)}</h2><button class="tutorial-pill" onclick="openTutorial()">▶ Tutorial</button></div>
+  <div class="page-head"><button class="back-arrow" onclick="backToCategory()" aria-label="Back">←</button><h2>${SUB_META[category].labels[subcategory] || esc(subcategory)}</h2><button class="tutorial-pill" onclick="openSupport()"><span class="tut-play">▶</span> Tutorial</button></div>
   <div class="tabs">
     <button class="${category === 'br' ? 'on' : ''}" onclick="openCategory('br')">BR MATCHES (${tournaments.filter((m) => m.category === 'br').length})</button>
     <button class="${category === 'cs' ? 'on' : ''}" onclick="openCategory('cs')">CS MATCHES (${tournaments.filter((m) => m.category === 'cs').length})</button>
@@ -1397,17 +1397,18 @@ window.openSlots = (id) => {
     ? teamOf('Team 1', Array.from({ length: half }, (_, i) => i + 1)) + teamOf('Team 2', Array.from({ length: selectedMatch.totalSlots - half }, (_, i) => half + i + 1))
     : `<div class="slotgrid">${Array.from({ length: selectedMatch.totalSlots }, (_, i) => slotBtn(i + 1)).join('')}</div>`;
   openModal(`<h2>Select a Slot</h2>
-  <div class="step-dots"><span class="step-dot on">1</span><span class="step-dot">2</span><span class="step-dot">3</span><span class="step-dot">4</span></div>
-  <p class="muted center">Step 1 — pick a free slot · Step 2 — enter your in-game name · Step 3 — agree to the rules · Step 4 — confirm</p>
+  <div class="step-dots"><span class="step-dot on">1</span><i class="step-line"></i><span class="step-dot">2</span><i class="step-line"></i><span class="step-dot">3</span><i class="step-line"></i><span class="step-dot">4</span></div>
+  <p class="slots-title">Available Slots</p>
   ${myBooking ? `<div class="okmsg">You already booked slot ${myBooking.slot_number} (${myBooking.status}).</div>` : ''}
   ${grid}
   <div id="slot-err"></div>
-  <button class="btn" style="margin-top:16px" onclick="proceedJoin()">PROCEED</button>`);
+  <button class="btn btn-proceed" id="join-proceed" style="margin-top:16px" disabled onclick="proceedJoin()">PROCEED</button>`);
 };
 window.selectSlot = (n, el) => {
   selectedSlot = n;
   $$('.slot').forEach((s) => s.classList.remove('sel'));
   el.classList.add('sel');
+  const pb = $('#join-proceed'); if (pb) pb.disabled = false;
 };
 function passForMatch(m) {
   if (!profile || !profile.passes || !m) return null;
@@ -1427,10 +1428,12 @@ window.proceedJoin = () => {
   // Free pass won on the Daily Spin wheel: category pass first, else All pass.
   const passInfo = passForMatch(selectedMatch);
   const passBox = passInfo ? `<div class="squad-box"><label style="display:flex;gap:8px;font-size:13px;align-items:flex-start"><input type="checkbox" id="f-usepass" style="width:auto;margin-top:2px"> <span>🎟️ <b>Use free pass</b> — you have ${passInfo.count} ${passInfo.label} pass${passInfo.count > 1 ? 'es' : ''}. Entry fee will be <b>৳0</b>.</span></label></div>` : '';
+  const depBal = wallet ? wallet.depositBalance : 0;
   openModal(`<h2>Enter Player Name</h2>
-  <div class="step-dots"><span class="step-dot done">1</span><span class="step-dot on">2</span><span class="step-dot">3</span><span class="step-dot">4</span></div>
+  <div class="step-dots"><span class="step-dot done">✓</span><i class="step-line done"></i><span class="step-dot on">2</span><i class="step-line"></i><span class="step-dot">3</span><i class="step-line"></i><span class="step-dot">4</span></div>
   <p class="muted">Join only with your own registered in-game name. Only the registered player may play — inviting an unregistered player means a permanent ban.</p>
-  <div class="field"><label>Player Name (exact in-game name)</label><input id="f-playername" value="${esc(profile ? profile.ign : '')}"></div>
+  <div class="field"><label>Player 1</label><input id="f-playername" placeholder="Enter Name" value="${esc(profile ? profile.ign : '')}"></div>
+  <div class="balance-card"><span class="balance-ic"><svg viewBox="0 0 24 24" width="24" height="24"><path fill="#ff2b2b" d="M21 7H5a1 1 0 0 1 0-2h16V3H5a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1zm-4 8a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg></span><span class="balance-tx"><span>YOUR BALANCE</span><b>${depBal} <i>TK</i></b></span></div>
   ${squadFields}
   ${passBox}
   <label style="display:flex;gap:8px;margin-top:14px;font-size:13px"><input type="checkbox" id="f-agree" style="width:auto"> I have read the match rules</label>
