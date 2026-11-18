@@ -326,6 +326,14 @@ h3{font-size:14px;margin-bottom:6px}
 .amt-box input{border:none;background:none;text-align:center;font-size:20px;font-weight:800;padding:11px 0}
 .amt-box input:focus{outline:none}
 .btn-proceed:disabled{background:#3a3a3a !important;box-shadow:none !important;color:#999 !important}
+/* sticky PROCEED footer inside join-flow sheets: the button stays pinned to
+   the bottom of the visible sheet while the slot list scrolls under it.
+   Negative side/bottom margins cancel the sheet's padding so the footer spans
+   the full sheet width and sits flush at its bottom edge; its own padding
+   keeps the button 22px above the edge. Content after the footer is the
+   button itself, so the last slots are never hidden behind it. */
+.sheet-foot{position:sticky;bottom:0;z-index:5;margin:16px -14px -22px;padding:14px 14px 22px;background:linear-gradient(180deg,rgba(20,20,20,0),#141414 45%)}
+.sheet-foot .btn{margin-top:0}
 @media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
 /* ---------- daily spin wheel ---------- */
 .spin-head{display:flex;align-items:center;background:linear-gradient(180deg,var(--red2),var(--red));border-radius:12px;padding:10px;margin-top:10px}
