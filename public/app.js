@@ -749,18 +749,9 @@ function matchCard(m) {
 function playHTML() {
   return `${topbarHTML()}<div class="wrap">
   <div class="banner-carousel">
-    <div class="car-slide on" onclick="openCategory('br')">
-      <img class="car-logo" src="/logo.webp" onerror="this.src='/icon-512.png'">
-      <div><b>${esc((appConfig && appConfig.bannerTitle) || 'S_19 TOURNAMENT')}</b><div class="car-sub">${esc((appConfig && appConfig.bannerSubtitle) || 'PLAY WIN ENJOY — Daily BR • CS • Lone Wolf matches. Win real Taka prizes!')}</div></div>
-    </div>
-    <div class="car-slide" onclick="openSupport()">
-      <div class="car-ic">🎧</div>
-      <div><b>Need any Help?</b><div class="car-sub">Customer Support 24/7 — tap here to contact the admin.</div></div>
-    </div>
-    <div class="car-slide car-telegram" onclick="openTelegram()">
-      <div class="car-ic">✈️</div>
-      <div><b>S_19 on Telegram</b><div class="car-sub">Match updates &amp; announcements — tap to join the channel.</div></div>
-    </div>
+    <div class="car-slide car-img on"><img src="/banner-home.jpg" alt="S_19 Tournament home screen"></div>
+    <div class="car-slide car-img" onclick="openTelegram()"><img src="/banner-telegram.jpg" alt="Join the S_19 Telegram channel"></div>
+    <div class="car-slide car-img" onclick="openWhatsApp()"><img src="/banner-whatsapp.jpg" alt="Join the S_19 WhatsApp channel"></div>
     <div class="car-dots"><button class="car-dot on" onclick="bannerGo(0)" aria-label="Slide 1"></button><button class="car-dot" onclick="bannerGo(1)" aria-label="Slide 2"></button><button class="car-dot" onclick="bannerGo(2)" aria-label="Slide 3"></button></div>
   </div>
   <div class="help-row">
