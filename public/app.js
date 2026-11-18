@@ -1458,7 +1458,7 @@ function showJoinSlots() {
   ${myBooking ? `<div class="okmsg">You already booked slot ${myBooking.slot_number} (${myBooking.status}).</div>` : ''}
   ${grid}
   <div id="slot-err"></div>
-  <button class="btn btn-proceed" id="join-proceed" style="margin-top:16px" disabled onclick="showJoinName()">PROCEED</button>`);
+  <div class="sheet-foot"><button class="btn btn-proceed" id="join-proceed" disabled onclick="showJoinName()">PROCEED</button></div>`);
 }
 window.selectSlot = (n, el) => {
   const max = joinFlowOf(selectedMatch).maxSlots;
@@ -1485,6 +1485,15 @@ function passForMatch(m) {
   if (profile.passes.all > 0) return { type: 'all', count: profile.passes.all, label: 'All Match' };
   return null;
 }
+// Name step: PROCEED stays dark/disabled until every player name is filled.
+window.checkJoinNames = () => {
+  const b = $('#name-proceed'); if (!b) return;
+  const flow = joinFlowOf(selectedMatch);
+  const n = flow.picker ? selectedSlots.length : 1;
+  let ok = true;
+  for (let i = 1; i <= n; i++) { const el = $('#f-player-' + i); if (!el || !el.value.trim()) { ok = false; break; } }
+  b.disabled = !ok;
+};
 // Name step: BR/LW step 2, CS step 1. One name box per slot picked
 // (CS: just Player 1 — the slot is auto-assigned later).
 window.showJoinName = () => {
@@ -1493,14 +1502,15 @@ window.showJoinName = () => {
   const nameCount = flow.picker ? selectedSlots.length : 1;
   const step = flow.picker ? 2 : 1;
   const depBal = wallet ? wallet.depositBalance : 0;
-  const fields = Array.from({ length: nameCount }, (_, i) => `<div class="field"><label>Player ${i + 1}</label><input id="f-player-${i + 1}" placeholder="Enter Name" value="${i === 0 ? esc(profile ? profile.ign : '') : ''}"></div>`).join('');
+  const fields = Array.from({ length: nameCount }, (_, i) => `<div class="field"><label>Player ${i + 1}</label><input id="f-player-${i + 1}" placeholder="Enter Name" oninput="checkJoinNames()" value="${i === 0 ? esc(profile ? profile.ign : '') : ''}"></div>`).join('');
   openModal(`<h2>Enter Player Name</h2>
   ${joinDots(step)}
   <p class="muted">Join only with your own registered in-game name. Only the registered player may play — inviting an unregistered player means a permanent ban.</p>
   ${fields}
   <div class="balance-card"><span class="balance-ic"><svg viewBox="0 0 24 24" width="24" height="24"><path fill="#ff2b2b" d="M21 7H5a1 1 0 0 1 0-2h16V3H5a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1zm-4 8a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg></span><span class="balance-tx"><span>YOUR BALANCE</span><b>${depBal} <i>TK</i></b></span></div>
   <div id="join-err"></div>
-  <button class="btn" style="margin-top:16px" onclick="showJoinRules()">PROCEED</button>`);
+  <div class="sheet-foot"><button class="btn btn-proceed" id="name-proceed" disabled onclick="showJoinRules()">PROCEED</button></div>`);
+  checkJoinNames();
 };
 // Rules step: BR/LW step 3, CS step 2. Short rules preview + agree tick;
 // PROCEED stays disabled until the box is ticked.
@@ -1523,7 +1533,7 @@ window.showJoinRules = () => {
   <ol class="rulelist">${preview}</ol>
   ${rules.lines.length > 6 ? `<p class="muted">…and ${rules.lines.length - 6} more — see Profile → All Rules for the full list.</p>` : ''}
   <label style="display:flex;gap:8px;margin-top:14px;font-size:13px"><input type="checkbox" id="f-agree" style="width:auto" onchange="const b=document.getElementById('rules-proceed');if(b)b.disabled=!this.checked"> I have read the match rules</label>
-  <button class="btn btn-proceed" id="rules-proceed" style="margin-top:16px" disabled onclick="showJoinConfirm()">PROCEED</button>`);
+  <div class="sheet-foot"><button class="btn btn-proceed" id="rules-proceed" disabled onclick="showJoinConfirm()">PROCEED</button></div>`);
 };
 // Confirm step: BR/LW step 4, CS step 3. Fee summary + free-pass option.
 window.showJoinConfirm = () => {
@@ -1542,7 +1552,7 @@ window.showJoinConfirm = () => {
   </div>
   ${passInfo ? `<div class="squad-box"><label style="display:flex;gap:8px;font-size:13px;align-items:flex-start"><input type="checkbox" id="f-usepass" style="width:auto;margin-top:2px" onchange="updateConfirmFee()"> <span>🎟️ <b>Use free pass</b> — you have ${passInfo.count} ${passInfo.label} pass${passInfo.count > 1 ? 'es' : ''}. One slot will be free.</span></label></div>` : ''}
   <div id="join-err"></div>
-  <button class="btn" style="margin-top:16px" onclick="confirmJoin()">I Agree and Confirm</button>`);
+  <div class="sheet-foot"><button class="btn" onclick="confirmJoin()">I Agree and Confirm</button></div>`);
 };
 window.updateConfirmFee = () => {
   const flow = joinFlowOf(selectedMatch);
