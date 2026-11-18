@@ -83,28 +83,52 @@ function hashPassword(pw, salt = crypto.randomBytes(16).toString('hex')) {
 }
 
 // ---- phone normalization ----
-// One number = one account. Stored form is '+8801XXXXXXXXX'; login accepts
-// +880..., 880..., 01..., 1... (10 digits), spaces/dashes — all compared on
-// the last 11 digits, so the same number always finds the same account.
-function normalizePhone(v) {
+// One number = one account. Stored form is E.164 ('+8801XXXXXXXXX' for
+// Bangladesh, '+<country-code><number>' for every other country).
+// Register accepts any valid international number: '+' followed by
+// 7-15 digits. Bangladeshi forms (+880..., 880..., 01..., 1... 10 digits)
+// all canonicalize to the same '+8801XXXXXXXXX' as before, so old
+// Bangladeshi accounts keep working unchanged.
+function canonicalPhone(v) {
   const d = String(v || '').replace(/\D/g, '');
   if (!d) return null;
+  // Bangladeshi forms -> +8801XXXXXXXXX (same stored form as before).
   let tail = d;
   if (tail.length === 13 && tail.startsWith('880')) tail = tail.slice(2);
   else if (tail.length === 12 && tail.startsWith('88')) tail = tail.slice(2);
   else if (tail.length === 10 && tail.startsWith('1')) tail = '0' + tail;
-  if (!/^01[3-9]\d{8}$/.test(tail)) return null;
-  return tail;
+  if (/^01[3-9]\d{8}$/.test(tail)) return '+880' + tail.slice(1);
+  // Any other valid international number (E.164: 7-15 digits).
+  if (d.length >= 7 && d.length <= 15) return '+' + d;
+  return null;
 }
-function canonicalPhone(v) {
-  const n = normalizePhone(v);
-  return n ? '+880' + n.slice(1) : null;
+// Normalized form used for lookups and reset-code identifiers: the
+// canonical E.164 number, or null when it is not a valid phone number.
+function normalizePhone(v) {
+  return canonicalPhone(v);
 }
 async function findProfileByPhone(v) {
-  const n = normalizePhone(v);
-  if (!n) return null;
+  const canon = canonicalPhone(v);
+  if (!canon) return null;
+  const digits = canon.slice(1); // without '+'
   const rows = await db.all('SELECT * FROM profiles');
-  return rows.find((r) => normalizePhone(r.phone) === n) || null;
+  // Exact full-number match — works for every country.
+  let hit = rows.find((r) => {
+    const c = canonicalPhone(r.phone);
+    return c && c.slice(1) === digits;
+  });
+  if (hit) return hit;
+  // Fallback for old Bangladeshi accounts: compare the last 11 digits,
+  // so 01... / 880... / +880... all still find the same account.
+  if (digits.length >= 11) {
+    const tail = digits.slice(-11);
+    hit = rows.find((r) => {
+      const c = canonicalPhone(r.phone);
+      return c && c.startsWith('+880') && c.slice(1).slice(-11) === tail;
+    });
+    if (hit) return hit;
+  }
+  return null;
 }
 async function auth(req, res, next) {
   const token = (req.headers.authorization || '').replace(/^Bearer /, '');
@@ -245,7 +269,7 @@ app.post('/api/register', async (req, res) => {
     }
     const phoneCanon = canonicalPhone(phone);
     if (!phoneCanon) {
-      return res.status(400).json({ ok: false, error: 'Phone must be a Bangladeshi number starting +8801' });
+      return res.status(400).json({ ok: false, error: 'Enter a valid phone number with country code, e.g. +8801XXXXXXXXX' });
     }
     const byEmail = await db.get('SELECT * FROM profiles WHERE LOWER(email) = LOWER(?)', [email]);
     if (byEmail && byEmail.password_hash) {
@@ -295,7 +319,8 @@ app.post('/api/login', async (req, res) => {
     }
     const id = String(emailOrUsername).trim();
     // Email or username (case-insensitive), or phone in any format
-    // (+880..., 880..., 01..., spaces/dashes) — all find the same account.
+    // (+880..., 880..., 01..., or any international +<country-code>...
+    // number) — all find the same account.
     let p = await db.get('SELECT * FROM profiles WHERE LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)', [id, id]);
     if (!p) p = await findProfileByPhone(id);
     if (!p || !p.password_hash) return res.status(400).json({ ok: false, error: 'No account found — register first' });
@@ -372,7 +397,7 @@ app.post('/api/forgot-password/request', async (req, res) => {
     if (!raw) return res.status(400).json({ ok: false, error: 'Enter your email or phone number' });
     const isEmail = raw.includes('@');
     const identifier = isEmail ? raw.toLowerCase() : normalizePhone(raw);
-    if (!identifier) return res.status(400).json({ ok: false, error: 'Enter a valid email or Bangladeshi phone number' });
+    if (!identifier) return res.status(400).json({ ok: false, error: 'Enter a valid email or phone number' });
     const p = isEmail
       ? await db.get('SELECT * FROM profiles WHERE LOWER(email) = LOWER(?)', [raw])
       : await findProfileByPhone(raw);
