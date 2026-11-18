@@ -360,3 +360,8 @@ h3{font-size:14px;margin-bottom:6px}
 .pw-wrap{position:relative}
 .pw-wrap input{padding-right:38px}
 .pw-eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:15px;padding:4px;line-height:1}
+
+/* sign-up phone: country select + fixed dial-code prefix */
+.phone-row{display:flex;gap:8px}
+.phone-row input{flex:1;min-width:0;width:auto}
+.phone-prefix{display:flex;align-items:center;background:#1e1e1e;border:1px solid var(--line);border-radius:10px;padding:0 12px;font-size:16px;color:var(--txt);white-space:nowrap}
