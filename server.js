@@ -161,10 +161,13 @@ async function auth(req, res, next) {
   req.profile = await db.get('SELECT * FROM profiles WHERE id = ?', [s.profile_id]);
   next();
 }
+// Admin = the owner (by email) or a promoted partner (is_admin flag).
+// The owner can never lose admin status; partners can be removed.
+function isAdminProfile(p) { return !!p && (p.email === OWNER_EMAIL || !!p.is_admin); }
 async function adminAuth(req, res, next) {
   await auth(req, res, async () => {
-    if (req.profile.email !== OWNER_EMAIL) {
-      return res.status(403).json({ ok: false, error: 'Only the owner can do this' });
+    if (!isAdminProfile(req.profile)) {
+      return res.status(403).json({ ok: false, error: 'Admin access required' });
     }
     next();
   });
@@ -637,7 +640,7 @@ app.get('/api/admin/players', adminAuth, async (req, res) => {
       players.push({
         id: p.id, username: p.username, accountId: p.account_id,
         phone: p.phone || '', email: p.email || '',
-        banned: !!p.banned, isAdmin: p.email === OWNER_EMAIL,
+        banned: !!p.banned, isAdmin: isAdminProfile(p), isOwner: p.email === OWNER_EMAIL,
         depositBalance: w.depositBalance, winningBalance: w.winningBalance,
       });
     }
@@ -654,13 +657,32 @@ app.post('/api/admin/players/:id/ban', adminAuth, async (req, res) => {
     res.json({ ok: true, banned });
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
+// Partnership: promote a player to admin (partner) or remove them.
+// Only admins can do this; the owner can never be removed as partner.
+app.post('/api/admin/players/:id/promote', adminAuth, async (req, res) => {
+  try {
+    const p = await db.get('SELECT * FROM profiles WHERE id = ?', [req.params.id]);
+    if (!p) return res.status(404).json({ ok: false, error: 'Player not found' });
+    await db.run('UPDATE profiles SET is_admin = 1 WHERE id = ?', [p.id]);
+    res.json({ ok: true, isAdmin: true });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+app.post('/api/admin/players/:id/demote', adminAuth, async (req, res) => {
+  try {
+    const p = await db.get('SELECT * FROM profiles WHERE id = ?', [req.params.id]);
+    if (!p) return res.status(404).json({ ok: false, error: 'Player not found' });
+    if (p.email === OWNER_EMAIL) return res.status(400).json({ ok: false, error: 'Cannot remove the owner' });
+    await db.run('UPDATE profiles SET is_admin = 0 WHERE id = ?', [p.id]);
+    res.json({ ok: true, isAdmin: false });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
 
 function safeProfile(p) {
   if (!p) return null;
   return {
     id: p.id, accountId: p.account_id, username: p.username, email: p.email,
     phone: p.phone, ign: p.ign, uid: p.uid, avatar: p.avatar || '',
-    isAdmin: p.email === OWNER_EMAIL,
+    isAdmin: isAdminProfile(p), isOwner: p.email === OWNER_EMAIL,
     spunToday: p.last_spin_date === dhakaDateStr(),
     passes: {
       br: p.br_passes || 0, cs: p.cs_passes || 0,
