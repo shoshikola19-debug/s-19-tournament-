@@ -790,7 +790,6 @@ const MATCH_RULES = [
   "perKill": "💀 Per Kill → 1 Point",
   "final": "⚡ Final Score = Placement + Kill Points",
   "lines": [
-   "🏆 POINT SYSTEM",
    "✓ Double Vector & Charge Booster Allow",
    "✓ Full Tournament Style All Gun And character Allow",
    "✓ M590 Gun Allow",
