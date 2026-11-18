@@ -383,8 +383,41 @@ function startBanner() {
   clearInterval(bannerTimer);
   bannerIdx = 0; bannerGo(0);
   bannerTimer = setInterval(() => { const n = $$('.car-slide').length || 2; bannerGo((bannerIdx + 1) % n); }, 4000);
+  bindBannerSwipe();
 }
 function stopBanner() { clearInterval(bannerTimer); }
+// Restart only the auto-rotate timer (keeps the current slide) — used after a hand swipe.
+function restartBannerTimer() {
+  clearInterval(bannerTimer);
+  bannerTimer = setInterval(() => { const n = $$('.car-slide').length || 2; bannerGo((bannerIdx + 1) % n); }, 4000);
+}
+// Hand swipe on the banner: drag left = next slide, drag right = previous slide.
+// A swipe also restarts the auto-rotate timer so the slide does not flip right after.
+let bannerTouchX = 0, bannerTouchY = 0, bannerSwipeUsed = false, bannerSwipeTimer = null;
+function bindBannerSwipe() {
+  const car = document.querySelector('.banner-carousel');
+  if (!car) return;
+  car.addEventListener('touchstart', (e) => {
+    const t = e.touches[0];
+    bannerTouchX = t.clientX; bannerTouchY = t.clientY;
+  }, { passive: true });
+  car.addEventListener('touchend', (e) => {
+    const t = e.changedTouches[0];
+    const dx = t.clientX - bannerTouchX, dy = t.clientY - bannerTouchY;
+    if (Math.abs(dx) >= 50 && Math.abs(dx) > Math.abs(dy)) {
+      const n = $$('.car-slide').length || 2;
+      bannerGo(dx < 0 ? (bannerIdx + 1) % n : (bannerIdx - 1 + n) % n);
+      restartBannerTimer();
+      bannerSwipeUsed = true;
+      clearTimeout(bannerSwipeTimer);
+      bannerSwipeTimer = setTimeout(() => { bannerSwipeUsed = false; }, 400);
+    }
+  }, { passive: true });
+  // A swipe must not also fire the slide's tap link (Telegram / WhatsApp).
+  car.addEventListener('click', (e) => {
+    if (bannerSwipeUsed) { e.preventDefault(); e.stopPropagation(); bannerSwipeUsed = false; }
+  }, true);
+}
 function isTeamMatch(m) {
   if (!m) return false;
   if (m.category === 'cs' && (m.subcategory === '4v4' || m.subcategory === 'Headshot Only')) return true;
@@ -1226,17 +1259,17 @@ function playHTML() {
     <span class="help-txt"><b>Need any Help?</b><span>● Customer Support</span></span>
     <button class="help-contact" onclick="openSupport()">Contact ›</button>
   </div>
-  <div class="community-sec">
-    <div class="community-title">JOIN OUR COMMUNITY</div>
-    <button class="tg-btn" onclick="openTelegram()"><span class="tg-ic">✈️</span><span class="tg-tx"><b>Join Telegram Channel</b><span>Match updates, results &amp; announcements</span></span><span class="tg-arrow">›</span></button>
-    <button class="wa-btn" onclick="openWhatsApp()"><span class="tg-ic">💬</span><span class="tg-tx"><b>Join WhatsApp Channel</b><span>Match updates, results &amp; announcements</span></span><span class="tg-arrow">›</span></button>
-  </div>
   <div class="cat-cards">
     ${[['br', 'BR MATCH', 'BR MATCHES', 'Solo • Duo • Esports PRO'], ['cs', 'CS MATCH', 'CS MATCHES', '4v4 • 1v1 • Headshot Only'], ['lw', 'LONE WOLF MATCH', 'LW MATCHES', '1v1 • 2v2 • Lose To Win • Headshot Only']].map(([c, shield, lb, sub]) => { const n = tournaments.filter((m) => m.category === c && m.status === 'upcoming').length; return `<button class="cat-card cat-${c}" onclick="openCategory('${c}')">
       <span class="shield-tile"><img class="shield-logo" src="/logo.webp" alt="" onerror="this.style.display='none'"><span class="shield-label">${shield}</span></span>
       <span class="cat-body"><b class="cat-title">${lb}</b><span class="cat-sub">${sub}</span><span class="live-badge">● ${n} Matches Live</span></span>
       <span class="cat-arrow">›</span>
     </button>`; }).join('')}
+  </div>
+  <div class="community-sec">
+    <div class="community-title">JOIN OUR COMMUNITY</div>
+    <button class="tg-btn" onclick="openTelegram()"><span class="tg-ic">✈️</span><span class="tg-tx"><b>Join Telegram Channel</b><span>Match updates, results &amp; announcements</span></span><span class="tg-arrow">›</span></button>
+    <button class="wa-btn" onclick="openWhatsApp()"><span class="tg-ic">💬</span><span class="tg-tx"><b>Join WhatsApp Channel</b><span>Match updates, results &amp; announcements</span></span><span class="tg-arrow">›</span></button>
   </div>
   </div>${bottomnavHTML()}`;
 }
