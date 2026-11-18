@@ -278,7 +278,7 @@ window.showPolicy = (kind) => {
     terms: `<p>Players must be 18+. Only the registered player may play in a match they joined — inviting an unregistered player means a permanent ban. Every match is hack-checked. The admin's decision is final. Deposit Balance can never be withdrawn — only Winning Balance can. Minimum withdrawal ৳100, withdrawals open 10:00 AM – 9:30 PM Dhaka time.</p>`,
     refund: `<p>Full refund when a match is cancelled, its time is changed, or room details are not given. No refund for joining late, a wrong name/UID, cheating, or after joining a 1v1 match. Entry fees are refunded in full when a booking is rejected or a match is cancelled.</p>`,
   };
-  openModal(`<h2>${esc(kind.toUpperCase())}</h2><div style="line-height:1.7;font-size:14px;margin-top:10px">${bodies[kind] || ''}</div><button class="btn" style="margin-top:16px" onclick="closeModal()">Close</button>`);
+  openModal(`<h2>${esc(kind.toUpperCase())}</h2><div style="line-height:1.7;font-size:13px;margin-top:10px">${bodies[kind] || ''}</div><button class="btn" style="margin-top:16px" onclick="closeModal()">Close</button>`);
 };
 
 // ---------- auth ----------
@@ -299,7 +299,7 @@ function authHTML() {
     <div id="auth-err"></div>
     <button class="btn" style="margin-top:16px" onclick="${isLogin ? 'doLogin()' : 'doRegister()'}">${isLogin ? 'Login' : 'Register'}</button>
     ${isLogin ? `<p class="center" style="margin-top:12px"><a href="#" onclick="openForgot();return false">Forgot Password?</a></p>` : ''}
-    <p class="center muted" style="margin-top:18px;letter-spacing:2px;font-size:11px">VERSION 1.0.0</p>
+    <p class="center muted" style="margin-top:18px;letter-spacing:2px;font-size:10px">VERSION 1.0.0</p>
     <p class="center muted" style="margin-top:14px">${isLogin ? "Don't have an account? " : 'Already have an account? '}
       <a href="#" onclick="goAuth('${isLogin ? 'register' : 'login'}');return false">${isLogin ? 'Sign Up' : 'Login'}</a></p>
     <p class="center"><a href="#" onclick="backHome();return false">← Back to home</a></p>
@@ -475,7 +475,7 @@ const LW1V1_RULES = ['সন্দেহজনক User কে কোনো ন�
 function topbarHTML() {
   const upcomingMine = tournaments.filter((m) => (m.status === 'upcoming' || m.status === 'live') && m.bookings.some((b) => profile && b.profile_id === profile.id && (b.status === 'pending' || b.status === 'approved'))).length;
   return `<div class="topbar"><img class="logo-sm" src="/logo.webp" onerror="this.src='/icon-192.png'">
-  <div><b>${appNameHTML()}</b><div class="muted" style="font-size:11px">WELCOME BACK, ${esc(profile ? profile.username.toUpperCase() : 'PLAYER')} ${profile && profile.isAdmin ? '<span class="admin-badge">ADMIN</span>' : ''}</div></div>
+  <div><b>${appNameHTML()}</b><div class="muted" style="font-size:10px">WELCOME BACK, ${esc(profile ? profile.username.toUpperCase() : 'PLAYER')} ${profile && profile.isAdmin ? '<span class="admin-badge">ADMIN</span>' : ''}</div></div>
   <div class="sp"></div>
   ${profile ? `<span class="id-chip">S_19 ID #${profile.accountId}</span>` : ''}
   <button class="bell-btn" onclick="view='mymatches';render()" aria-label="Notifications">🔔${upcomingMine ? `<span class="bell-count">${upcomingMine}</span>` : ''}</button>
@@ -679,14 +679,14 @@ window.proceedJoin = () => {
     </div>` : '';
   // Free pass won on the Daily Spin wheel: category pass first, else All pass.
   const passInfo = passForMatch(selectedMatch);
-  const passBox = passInfo ? `<div class="squad-box"><label style="display:flex;gap:8px;font-size:14px;align-items:flex-start"><input type="checkbox" id="f-usepass" style="width:auto;margin-top:2px"> <span>🎟️ <b>Use free pass</b> — you have ${passInfo.count} ${passInfo.label} pass${passInfo.count > 1 ? 'es' : ''}. Entry fee will be <b>৳0</b>.</span></label></div>` : '';
+  const passBox = passInfo ? `<div class="squad-box"><label style="display:flex;gap:8px;font-size:13px;align-items:flex-start"><input type="checkbox" id="f-usepass" style="width:auto;margin-top:2px"> <span>🎟️ <b>Use free pass</b> — you have ${passInfo.count} ${passInfo.label} pass${passInfo.count > 1 ? 'es' : ''}. Entry fee will be <b>৳0</b>.</span></label></div>` : '';
   openModal(`<h2>Enter Player Name</h2>
   <div class="step-dots"><span class="step-dot done">1</span><span class="step-dot on">2</span><span class="step-dot">3</span><span class="step-dot">4</span></div>
   <p class="muted">Join only with your own registered in-game name. Only the registered player may play — inviting an unregistered player means a permanent ban.</p>
   <div class="field"><label>Player Name (exact in-game name)</label><input id="f-playername" value="${esc(profile ? profile.ign : '')}"></div>
   ${squadFields}
   ${passBox}
-  <label style="display:flex;gap:8px;margin-top:14px;font-size:14px"><input type="checkbox" id="f-agree" style="width:auto"> I have read the match rules</label>
+  <label style="display:flex;gap:8px;margin-top:14px;font-size:13px"><input type="checkbox" id="f-agree" style="width:auto"> I have read the match rules</label>
   <div id="join-err"></div>
   <button class="btn" style="margin-top:16px" onclick="confirmJoin()">I Agree and Confirm</button>`);
 };
@@ -896,7 +896,7 @@ window.depStep2 = async () => {
   }
   openModal(`<h2>Send Money — ${method === 'bkash' ? 'bKash' : method === 'nagad' ? 'Nagad' : 'Rocket'}</h2>
   <div class="card"><b>Send ৳${amt} to this ${method} number:</b>
-    <div style="font-size:22px;font-weight:800;margin:8px 0">${esc(num)}</div>
+    <div style="font-size:21px;font-weight:800;margin:8px 0">${esc(num)}</div>
     <button class="btn-ghost btn-sm" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(num)}');toast('Number copied')">Copy number</button>
     <p class="muted" style="margin-top:8px">Send Money from your ${method} app, then paste the TrxID below.</p></div>
   <div class="field"><label>Your sender number</label><input id="dep-sender" placeholder="01XXXXXXXXX"></div>
@@ -988,7 +988,7 @@ function profileHTML() {
       <button class="id-pill" onclick="copyS19Id()">S_19 ID #${profile ? profile.accountId : ''} <span class="copy-ic">📋</span></button>
       <button class="edit-pill" onclick="editProfile()">✏️ Edit Profile</button>
     </div>
-    <p class="muted" style="margin-top:10px;font-size:13px">IGN ${esc(profile ? profile.ign : '—')} · UID ${esc(profile ? profile.uid : '—')}</p>
+    <p class="muted" style="margin-top:10px;font-size:12px">IGN ${esc(profile ? profile.ign : '—')} · UID ${esc(profile ? profile.uid : '—')}</p>
   </div>
   <div class="profile-tiles">
     <div class="profile-tile hot" style="cursor:pointer" onclick="view='wallet';render()"><span>BDT<br>BALANCE</span><b class="red">৳${wallet ? wallet.depositBalance : 0}</b></div>
@@ -1416,4 +1416,15 @@ setInterval(() => {
     markNoticeSeen();
     setTimeout(() => showNotice(), 600);
   }
+})();
+
+// Text copy/selection is disabled app-wide: a long-press on mobile Chrome
+// must not show Select/Copy on any text. Inputs keep text selection so
+// players can still type, paste and edit.
+(function noCopy() {
+  function isEditable(t) {
+    return !!t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+  }
+  document.addEventListener('contextmenu', (e) => { if (!isEditable(e.target)) e.preventDefault(); });
+  document.addEventListener('selectstart', (e) => { if (!isEditable(e.target)) e.preventDefault(); });
 })();
