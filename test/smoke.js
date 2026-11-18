@@ -504,10 +504,14 @@ function req(method, p, body, token) {
     }
     assert.ok(/input,select,textarea\{[^}]*font-size:16px/.test(css), 'input font stays 16px (no auto-zoom on focus)');
     assert.ok(/body\{[^}]*user-select:none/.test(css), 'body text selection disabled');
+    assert.ok(css.includes('*,*::before,*::after{-webkit-user-select:none!important;user-select:none!important'), 'global no-select rule on every element');
+    assert.ok(/input,select,textarea\{[^}]*user-select:text!important/.test(css), 'inputs keep text selection');
+    assert.ok(/body\{[^}]*font-size:13px/.test(css), 'body font is 13px (smaller text)');
+    assert.ok(appJs.includes('noCopy') && appJs.includes("addEventListener('contextmenu'") && appJs.includes("addEventListener('selectstart'"), 'long-press copy blocked outside inputs');
     const man = await fetch('http://127.0.0.1:3101/manifest.webmanifest');
     assert.strictEqual(man.status, 200, 'manifest serves');
     const sw = await (await fetch('http://127.0.0.1:3101/sw.js')).text();
-    assert.ok(sw.includes('s19-tournament-v2'), 'sw cache bumped to v2 so phones fetch the new shell');
+    assert.ok(sw.includes('s19-tournament-v3'), 'sw cache bumped to v3 so phones fetch the new shell');
     const idx = await (await fetch('http://127.0.0.1:3101/')).text();
     assert.ok(idx.includes('appinstalled'), 'index tracks install state (Download button stays visible)');
     const icon = await fetch('http://127.0.0.1:3101/icon-512.png');
