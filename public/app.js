@@ -346,6 +346,7 @@ function countdownText(m) {
   if (m.status === 'finished') return 'Match Finished';
   if (m.status === 'cancelled') return 'Match Cancelled';
   if (m.status === 'closed') return 'Entries Closed';
+  if (m.status === 'paused') return '⏸ Paused';
   if (diff <= 0) return 'Match Started';
   const s = Math.floor(diff / 1000);
   const hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60), ss = s % 60;
@@ -1209,7 +1210,7 @@ const SUBS = { br: ['Solo', 'Duo', 'Esports PRO'], cs: ['4v4', '1v1', 'Headshot 
 const LW1V1_RULES = ['সন্দেহজনক User কে কোনো নোটিশ ছাড়াই BAN করা হবে।', 'ম্যাচে অ্যাডমিন পান দেওয়া থেকে শুরু করে ম্যাচ স্টার্ট হওয়া পর্যন্ত ভিডিও করা লাগবে এবং অ্যাডমিন যদি ভিডিও চায় দেখাতে হবে।', 'জয়েন করার সময় আপনার নাম দিয়ে জয়েন করলে কিক দেওয়া হবে, কোনো প্রকার রিফান্ড এবং Winning Reward দেওয়া হবে না।', '৫০ লেভেলের কম Free Fire আইডি দিয়ে ম্যাচ জয়েন করলে, ম্যাচ থেকে কিক দেওয়া হলে কোনো প্রকার REFUND দেওয়া হবে না।', 'ম্যাচ জয়েন করার পর কোনো ধরনের রিফান্ড করা হবে না।', 'কোনো প্লেয়ার অন্য অ্যাপ থেকে ব্যান থাকলে আমাদের অ্যাপ থেকেও ব্যান করা হবে।', 'ম্যাচ সময়ের ৪/৫ মিনিট আগে Room-এ ঢুকতে হবে, ID ও Password পেয়ে যাবেন।', 'ম্যাচ শুরু হওয়ার ২/৩ মিনিট আগে কাস্টম জয়েন করতে না পারলে কোনো প্রকার Refund পাবেন না।', 'আমাদের অ্যাপে Notification-এ Room ID ও Password দেওয়া হয় না।', 'ম্যাচে রেকর্ড ভিডিও এবং Screenshot দিতে না পারলে সে ম্যাচে কোনো প্রকার Refund অথবা Reward দেওয়া হবে না।', 'ম্যাচ জিতলে কোনো সমস্যা হলে ম্যাচ শেষ হওয়ার সর্বোচ্চ ৫/১০ মিনিটের মধ্যে জানাতে হবে।', '১ভি১ ম্যাচে জয়েন করার পর আর কোনো Refund-এর ব্যবস্থা নেই।', '১ভি১ ম্যাচে কোনো ধরনের Teaming, ইমোট ব্যবহার, লাফালাফি, Zone অথবা Bomb মেরে নিজে মারা যাওয়া সম্পূর্ণ নিষিদ্ধ। এমনটি করলে Entry Fee বাজেয়াপ্ত করা হবে এবং ম্যাচটি বাতিল করা হবে।', '১ভি১ ম্যাচে শুধুমাত্র নির্ধারিত দুইজন প্লেয়ার খেলবে। অন্য কোনো প্লেয়ার অংশগ্রহণ করতে পারবে না।', 'ম্যাচ "WINNINGS"-এর টাকা ম্যাচ শেষ হওয়ার ৩০ মিনিটের মধ্যে Account-এ Add দেওয়া হবে।', 'যেকোনো সমস্যা বা সহযোগিতার ক্ষেত্রে আমাদের SUPPORT-এ যোগাযোগ করতে হবে।', '🔴 "S_19 TOURNAMENT ADMIN"-এর সিদ্ধান্তই চূড়ান্ত সিদ্ধান্ত 🔴'];
 
 function topbarHTML() {
-  const upcomingMine = tournaments.filter((m) => (m.status === 'upcoming' || m.status === 'live') && m.bookings.some((b) => profile && b.profile_id === profile.id && (b.status === 'pending' || b.status === 'approved'))).length;
+  const upcomingMine = tournaments.filter((m) => (m.status === 'upcoming' || m.status === 'live' || m.status === 'paused') && m.bookings.some((b) => profile && b.profile_id === profile.id && (b.status === 'pending' || b.status === 'approved'))).length;
   return `<div class="topbar"><img class="logo-sm" src="/logo.webp" onerror="this.src='/icon-192.png'">
   <div><b>${appNameHTML()}</b><div class="muted" style="font-size:10px">WELCOME BACK, ${esc(profile ? profile.username.toUpperCase() : 'PLAYER')} ${profile && profile.isAdmin ? '<span class="admin-badge">ADMIN</span>' : ''}</div></div>
   <div class="sp"></div>
@@ -1261,7 +1262,7 @@ function matchCard(m) {
     </div>
     <div class="reg-row"><span class="reg-label">👥 Registration</span><b>${taken}/${m.totalSlots}</b></div>
     <div class="regbar"><i style="width:${pct}%"></i></div>
-    <button class="btn join-btn ${full ? 'btn-full' : ''}" ${m.status !== 'upcoming' || full ? 'disabled' : ''} onclick="startJoin(${m.id})">${full ? 'Match Full' : '🚀 Join Now'}</button>
+    <button class="btn join-btn ${full ? 'btn-full' : ''}" ${m.status !== 'upcoming' || full ? 'disabled' : ''} onclick="startJoin(${m.id})">${full ? 'Match Full' : (m.status === 'paused' ? '⏸ Paused' : '🚀 Join Now')}</button>
     <div class="row3">
       <button class="btn" onclick="openSlots(${m.id})">👥 Slots</button>
       <button class="btn" onclick="openRoom(${m.id})">🚪 Room</button>
@@ -2074,11 +2075,12 @@ async function adminHTML() {
   <p class="muted">A banned player cannot login or join matches.</p></div>
   <h3 style="margin-top:20px">Matches (${adminTournaments.length})</h3>
   ${adminTournaments.map((m) => `<div class="card"><b>${esc(m.title)}</b> <span class="badge">#${m.id}</span>
-    <div class="muted">${esc(m.matchDate)} ${esc(m.matchTime)} · ${esc(m.status)} · ${m.bookings.filter((b) => b.status === 'pending' || b.status === 'approved').length}/${m.totalSlots} booked · Room: ${m.roomId || '—'}</div>
+    <div class="muted">${esc(m.matchDate)} ${esc(m.matchTime)} · ${m.status === 'paused' ? '⏸ Paused' : esc(m.status)} · ${m.bookings.filter((b) => b.status === 'pending' || b.status === 'approved').length}/${m.totalSlots} booked · Room: ${m.roomId || '—'}</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
       <button class="btn-ghost btn-sm" onclick="setStatus(${m.id},'live')">Start live</button>
       <button class="btn-ghost btn-sm" onclick="setStatus(${m.id},'closed')">Close entries</button>
       <button class="btn-ghost btn-sm" onclick="setStatus(${m.id},'upcoming')">Reopen</button>
+      ${m.status === 'paused' ? `<button class="btn-ghost btn-sm" onclick="resumeMatch(${m.id})">▶ Resume</button>` : ((m.status === 'upcoming' || m.status === 'live') ? `<button class="btn-ghost btn-sm" onclick="pauseMatch(${m.id})">⏸ Pause</button>` : '')}
       <button class="btn-ghost btn-sm" onclick="setStatus(${m.id},'finished')">Mark finished</button>
       <button class="btn-ghost btn-sm" onclick="cancelMatch(${m.id})">Cancel</button>
       <button class="btn-ghost btn-sm" onclick="editMatch(${m.id})">Edit</button>
@@ -2140,6 +2142,8 @@ window.createMatch = async () => {
   } catch (e) { $('#ad-err').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 };
 window.setStatus = async (id, st) => { await api(`/api/tournaments/${id}/status`, { method: 'POST', body: JSON.stringify({ status: st }) }); render(); };
+window.pauseMatch = async (id) => { try { await api(`/api/tournaments/${id}/pause`, { method: 'POST' }); await loadTournaments(); render(); toast('Match paused — nobody can join'); } catch (e) { toast(e.message); } };
+window.resumeMatch = async (id) => { try { await api(`/api/tournaments/${id}/resume`, { method: 'POST' }); await loadTournaments(); render(); toast('Match resumed'); } catch (e) { toast(e.message); } };
 window.cancelMatch = async (id) => { if (confirm('Cancel this match? Entry fees will be refunded.')) { await api(`/api/tournaments/${id}/cancel`, { method: 'POST' }); await loadTournaments(); render(); } };
 window.deleteMatch = async (id) => { if (confirm('Delete this match? Entry fees will be refunded.')) { await api(`/api/tournaments/${id}`, { method: 'DELETE' }); await loadTournaments(); render(); } };
 window.reviewBooking = async (id, ok) => { await api(`/api/bookings/${id}/review`, { method: 'POST', body: JSON.stringify({ approve: ok }) }); render(); };
