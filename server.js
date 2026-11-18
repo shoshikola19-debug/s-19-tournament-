@@ -36,6 +36,28 @@ function roomRevealed(t) {
   return Date.now() >= matchStartMs(t) - ROOM_REVEAL_MINUTES * 60 * 1000;
 }
 function matchStarted(t) { return Date.now() >= matchStartMs(t); }
+// Max slots one player may book in a single request (mirrors client joinFlowOf):
+// BR Duo / CS Headshot Only / LW Headshot Only = 2, BR E-Sports PRO = 4,
+// everything else = 1. Auto-assign matches (CS 4v4, CS 1v1, LW 1v1,
+// LW 2v2, Lose To Win) take 1 slot per user.
+function maxSlotsOf(t) {
+  if (!t) return 1;
+  if (t.category === 'br' && t.subcategory === 'Duo') return 2;
+  if (t.category === 'br' && t.subcategory === 'Esports PRO') return 4;
+  if (t.subcategory === 'Headshot Only') return 2;
+  return 1;
+}
+
+// Mirrors client joinFlowOf: only BR matches and Headshot Only (2v2, CS
+// and LW) use a slot picker; every other subcategory (CS 4v4, CS 1v1,
+// LW 1v1, LW 2v2, Lose To Win) auto-assigns the lowest free slot when
+// the client sends no slots.
+function autoAssignOf(t) {
+  if (!t) return false;
+  if (t.category === 'br') return false;
+  if (t.subcategory === 'Headshot Only') return false;
+  return true;
+}
 
 // ---- app settings (admin-editable in the Admin Panel, stored in the
 // settings key-value table next to the payment numbers) ----
@@ -793,67 +815,108 @@ app.post('/api/tournaments/:id/book', auth, async (req, res) => {
     if (!t) return res.status(404).json({ ok: false, error: 'Match not found' });
     if (t.status !== 'upcoming') return res.status(400).json({ ok: false, error: 'This match is not open for joining' });
     if (matchStarted(t)) return res.status(400).json({ ok: false, error: 'Match already started' });
-    const { slotNumber, playerName, squadNames, usePass } = req.body || {};
-    const slot = Number(slotNumber);
-    if (!slot || slot < 1 || slot > t.total_slots) {
+    const { slotNumber, slotNumbers, playerName, playerNames, squadNames, usePass } = req.body || {};
+    // One request may book 1..maxSlots slots (BR Duo / CS Headshot Only = 2,
+    // everything else = 1). Entry fee is charged per slot, so 2 slots = 2 fees.
+    let slots = Array.isArray(slotNumbers) ? slotNumbers.map(Number)
+      : (slotNumber !== undefined && slotNumber !== null ? [Number(slotNumber)] : []);
+    slots = [...new Set(slots)];
+    if (!slots.length && autoAssignOf(t)) {
+      // Auto-assign matches (CS 4v4, CS 1v1, all of LW) have no slot picker —
+      // assign the lowest free slot. The 1,3,5,7 vs 2,4,6,8 team split
+      // (CS 4v4, LW 2v2) falls out of the odd/even numbering.
+      const takenRows = await db.all("SELECT slot_number FROM bookings WHERE tournament_id = ? AND status IN ('pending','approved')", [t.id]);
+      const takenSet = new Set(takenRows.map((r) => r.slot_number));
+      for (let n = 1; n <= t.total_slots; n++) { if (!takenSet.has(n)) { slots = [n]; break; } }
+      if (!slots.length) return res.status(400).json({ ok: false, error: 'Match Full' });
+    }
+    if (!slots.length || slots.some((s) => !Number.isInteger(s) || s < 1 || s > t.total_slots)) {
       return res.status(400).json({ ok: false, error: 'Pick a free slot number' });
     }
-    // Squad names (optional): squad leader lists up to 3 teammates.
+    const maxSlots = maxSlotsOf(t);
+    if (slots.length > maxSlots) {
+      return res.status(400).json({ ok: false, error: `You can book at most ${maxSlots} slot${maxSlots > 1 ? 's' : ''} in this match` });
+    }
+    // One player name per slot. The first name is the account owner's own
+    // registered in-game name; the rest are teammates playing the other slots.
+    let names = Array.isArray(playerNames) ? playerNames.map((n) => String(n == null ? '' : n).trim()) : null;
     let squad = [];
-    if (squadNames !== undefined && squadNames !== null) {
-      if (!Array.isArray(squadNames)) {
-        return res.status(400).json({ ok: false, error: 'Squad names must be a list' });
+    if (!names) {
+      // Old single-slot clients: playerName + optional squadNames.
+      if (squadNames !== undefined && squadNames !== null) {
+        if (!Array.isArray(squadNames)) {
+          return res.status(400).json({ ok: false, error: 'Squad names must be a list' });
+        }
+        squad = squadNames.map((n) => String(n).trim()).filter(Boolean);
+        if (squad.length > 3) {
+          return res.status(400).json({ ok: false, error: 'A squad has at most 3 teammates besides you' });
+        }
+        if (squad.some((n) => n.length > 40)) {
+          return res.status(400).json({ ok: false, error: 'Squad names must be 40 characters or fewer' });
+        }
       }
-      squad = squadNames.map((n) => String(n).trim()).filter(Boolean);
-      if (squad.length > 3) {
-        return res.status(400).json({ ok: false, error: 'A squad has at most 3 teammates besides you' });
-      }
-      if (squad.some((n) => n.length > 40)) {
-        return res.status(400).json({ ok: false, error: 'Squad names must be 40 characters or fewer' });
-      }
+      names = [playerName ? String(playerName).trim() : ''].concat(squad);
     }
     if (!req.profile.uid) {
       return res.status(400).json({ ok: false, error: 'Add your Free Fire UID in Edit Profile first' });
     }
-    if (playerName && playerName !== req.profile.ign && playerName !== req.profile.username) {
+    if (!names[0]) names[0] = req.profile.ign || req.profile.username || '';
+    if (names.length < slots.length) {
+      return res.status(400).json({ ok: false, error: 'Enter a name for every slot' });
+    }
+    names = names.slice(0, slots.length);
+    if (names.some((n) => !n || n.length > 40)) {
+      return res.status(400).json({ ok: false, error: 'Player names must be 1–40 characters' });
+    }
+    if (names[0] !== req.profile.ign && names[0] !== req.profile.username) {
       return res.status(400).json({ ok: false, error: 'Join only with your own registered in-game name' });
     }
-    const taken = await db.get(
-      "SELECT id FROM bookings WHERE tournament_id = ? AND slot_number = ? AND status IN ('pending','approved')",
-      [t.id, slot]);
-    if (taken) return res.status(400).json({ ok: false, error: 'That slot is already taken' });
+    for (const slot of slots) {
+      const taken = await db.get(
+        "SELECT id FROM bookings WHERE tournament_id = ? AND slot_number = ? AND status IN ('pending','approved')",
+        [t.id, slot]);
+      if (taken) return res.status(400).json({ ok: false, error: `Slot ${slot} is already taken` });
+    }
     const mine = await db.get(
       "SELECT id FROM bookings WHERE tournament_id = ? AND profile_id = ? AND status IN ('pending','approved')",
       [t.id, req.profileId]);
     if (mine) return res.status(400).json({ ok: false, error: 'You already booked a slot in this match' });
-    // Free pass (won on the Daily Spin wheel): the category pass first,
-    // otherwise an All pass. Entry fee becomes ৳0 and the pass is spent.
+    // Free pass (won on the Daily Spin wheel): covers ONE slot only.
+    // Entry fee for the other slots is still charged. The pass is spent
+    // only after the balance check below, so a failed booking never eats it.
     let usedPass = '';
     if (usePass) {
       const p = await db.get('SELECT * FROM profiles WHERE id = ?', [req.profileId]);
       const catCol = { br: 'br_passes', cs: 'cs_passes', lw: 'lw_passes' }[t.category];
-      if (catCol && (p[catCol] || 0) > 0) {
-        usedPass = t.category;
-        await db.run(`UPDATE profiles SET ${catCol} = ${catCol} - 1 WHERE id = ?`, [req.profileId]);
-      } else if ((p.all_passes || 0) > 0) {
-        usedPass = 'all';
-        await db.run('UPDATE profiles SET all_passes = all_passes - 1 WHERE id = ?', [req.profileId]);
-      } else {
+      if (catCol && (p[catCol] || 0) > 0) usedPass = t.category;
+      else if ((p.all_passes || 0) > 0) usedPass = 'all';
+      else {
         return res.status(400).json({ ok: false, error: 'No free pass for this match — spin the Daily Spin wheel to win one' });
       }
     }
+    const paidSlots = usedPass ? slots.length - 1 : slots.length;
+    const totalFee = t.entry_fee * paidSlots;
     const w = await walletFor(req.profileId);
-    if (!usedPass && t.entry_fee > w.depositBalance) {
+    if (totalFee > w.depositBalance) {
       return res.status(400).json({ ok: false, error: 'Not enough Deposit Balance — add money first' });
     }
-    if (!usedPass && t.entry_fee > 0) {
-      await db.run("INSERT INTO wallet_tx (profile_id, type, amount, note, status, created_at) VALUES (?,?,?,?,'approved',?)",
-        [req.profileId, 'entry', -t.entry_fee, 'Entry fee: ' + t.title, new Date().toISOString()]);
+    if (usedPass) {
+      const catCol = { br: 'br_passes', cs: 'cs_passes', lw: 'lw_passes' }[usedPass === 'all' ? '' : usedPass];
+      if (usedPass === 'all') await db.run('UPDATE profiles SET all_passes = all_passes - 1 WHERE id = ?', [req.profileId]);
+      else await db.run(`UPDATE profiles SET ${catCol} = ${catCol} - 1 WHERE id = ?`, [req.profileId]);
     }
-    const id = await db.insert(
-      "INSERT INTO bookings (tournament_id, profile_id, slot_number, player_name, squad_names, used_pass, status, created_at) VALUES (?,?,?,?,?,?, 'pending',?)",
-      [t.id, req.profileId, slot, playerName || req.profile.ign, JSON.stringify(squad), usedPass, new Date().toISOString()]);
-    res.json({ ok: true, id, usedPass });
+    if (totalFee > 0) {
+      await db.run("INSERT INTO wallet_tx (profile_id, type, amount, note, status, created_at) VALUES (?,?,?,?,'approved',?)",
+        [req.profileId, 'entry', -totalFee, slots.length > 1 ? `Entry fee (${slots.length} slots): ${t.title}` : 'Entry fee: ' + t.title, new Date().toISOString()]);
+    }
+    const ids = [];
+    for (let i = 0; i < slots.length; i++) {
+      const id = await db.insert(
+        "INSERT INTO bookings (tournament_id, profile_id, slot_number, player_name, squad_names, used_pass, status, created_at) VALUES (?,?,?,?,?,?, 'pending',?)",
+        [t.id, req.profileId, slots[i], names[i], slots.length === 1 ? JSON.stringify(squad) : '[]', i === 0 ? usedPass : '', new Date().toISOString()]);
+      ids.push(id);
+    }
+    res.json({ ok: true, id: ids[0], ids, slots, usedPass, feeCharged: totalFee });
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
 
