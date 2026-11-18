@@ -508,6 +508,15 @@ function req(method, p, body, token) {
     assert.ok(/input,select,textarea\{[^}]*user-select:text!important/.test(css), 'inputs keep text selection');
     assert.ok(/body\{[^}]*font-size:13px/.test(css), 'body font is 13px (smaller text)');
     assert.ok(/\.avatar-ring\{[^}]*animation:spin 8s linear infinite/.test(css), 'avatar ring spins 8s linear (ZVY-style rotating dashed ring)');
+    assert.ok(/\.match\{[^}]*border-radius:18px/.test(css), 'match card has round 18px corners like the ZVY card screenshot');
+    assert.ok(/\.match\{[^}]*border:2px solid/.test(css), 'match card has a thick red border like the ZVY card screenshot');
+    assert.ok(/\.join-btn\{[^}]*padding:15px;font-size:16px/.test(css), 'Join Now is big and thick (15px padding, 16px font)');
+    assert.ok(/\.join-btn\{[^}]*border-radius:18px/.test(css), 'Join Now is round (18px radius)');
+    assert.ok(/\.row3 \.btn\{[^}]*padding:14px 4px;font-size:13px/.test(css), 'Slots/Room/Prizes are thick round red buttons (14px padding, 13px font)');
+    assert.ok(/\.row3 \.btn\{[^}]*border-radius:16px/.test(css), 'Slots/Room/Prizes are round (16px radius)');
+    assert.ok(/\.tile\{[^}]*border-radius:14px/.test(css), 'info tiles are round (14px radius)');
+    assert.ok(/\.tile-ic\{[^}]*width:34px;height:34px/.test(css), 'tile icon circles are 34px like the ZVY card');
+    assert.ok(/\.regbar\{height:6px/.test(css), 'registration bar is thin and green like the ZVY card');
     assert.ok(/\.avatar-ring\{[^}]*border:3px dashed/.test(css), 'avatar ring is a red dashed circle');
     assert.ok(/\.avatar-ring\{[^}]*pointer-events:none/.test(css), 'avatar ring never blocks clicks (camera button stays clickable)');
     assert.ok(!/\.avatar-img\{[^}]*border:3px dashed/.test(css), 'avatar image itself is static — only the ring spins');
@@ -515,7 +524,7 @@ function req(method, p, body, token) {
     const man = await fetch('http://127.0.0.1:3101/manifest.webmanifest');
     assert.strictEqual(man.status, 200, 'manifest serves');
     const sw = await (await fetch('http://127.0.0.1:3101/sw.js')).text();
-    assert.ok(sw.includes('s19-tournament-v4'), 'sw cache bumped to v4 so phones fetch the new shell');
+    assert.ok(sw.includes('s19-tournament-v5'), 'sw cache bumped to v5 so phones fetch the new shell');
     const idx = await (await fetch('http://127.0.0.1:3101/')).text();
     assert.ok(idx.includes('appinstalled'), 'index tracks install state (Download button stays visible)');
     const icon = await fetch('http://127.0.0.1:3101/icon-512.png');
