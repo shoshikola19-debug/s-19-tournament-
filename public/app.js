@@ -979,6 +979,7 @@ function profileHTML() {
   return `${topbarHTML()}<div class="wrap">
   <div class="profile-head">
     <div class="avatar-wrap">
+      <div class="avatar-ring" aria-hidden="true"></div>
       <img class="avatar-img" src="${esc(av)}" alt="Profile photo" onerror="this.onerror=null;this.src='/logo.webp'">
       <button class="avatar-cam" onclick="document.getElementById('avatar-input').click()" aria-label="Change photo">📷</button>
       <input type="file" id="avatar-input" accept="image/*" style="display:none" onchange="uploadAvatar(this)">
