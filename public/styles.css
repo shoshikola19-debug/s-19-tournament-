@@ -42,9 +42,11 @@ h3{font-size:14px;margin-bottom:6px}
 .topbar .sp{flex:1}
 .chip{background:#1e1e1e;border:1px solid var(--line);border-radius:20px;padding:5px 10px;font-size:11px}
 .bottomnav{position:fixed;left:0;right:0;bottom:0;z-index:20;background:#111;border-top:1px solid var(--line);display:flex;max-width:520px;margin:0 auto}
-.bottomnav button{flex:1;background:none;border:none;color:var(--mut);padding:7px 2px 9px;font-size:9px}
+.bottomnav button{flex:1;background:none;border:none;color:var(--mut);padding:8px 2px 9px;font-size:10px}
+.bottomnav.six button{font-size:9px}
 .bottomnav button.on{color:var(--red2)}
-.bottomnav .ic{font-size:17px;display:block}
+.bottomnav .ic{display:block}
+.bottomnav .ic svg{width:24px;height:24px;display:block;margin:0 auto 3px}
 /* match cards */
 .tabs{display:flex;gap:8px;margin-top:14px}
 .tabs button{flex:1;background:#1e1e1e;border:1px solid var(--line);color:#fff;border-radius:10px;padding:9px;font-weight:700}
@@ -211,6 +213,7 @@ h3{font-size:14px;margin-bottom:6px}
 .squad-box .muted{margin-top:4px}
 /* bottom nav — active tab gets a red bar on top (Play in the centre) */
 .bottomnav button.on{color:var(--red2);box-shadow:inset 0 3px 0 var(--red2)}
+.bottomnav button.on .ic{filter:drop-shadow(0 0 6px rgba(255,30,40,.75))}
 /* JOIN OUR COMMUNITY — Telegram button (black + red app, blue Telegram button) */
 .community-sec{margin-top:12px}
 .community-title{font-size:11px;font-weight:800;letter-spacing:2px;color:#999;text-align:center;margin-bottom:8px}
@@ -366,3 +369,24 @@ h3{font-size:14px;margin-bottom:6px}
 .phone-row{display:flex;gap:8px}
 .phone-row input{flex:1;min-width:0;width:auto}
 .phone-prefix{display:flex;align-items:center;background:#1e1e1e;border:1px solid var(--line);border-radius:10px;padding:0 12px;font-size:16px;color:var(--txt);white-space:nowrap}
+
+/* Match Rules screen (ZVY-style tabs + rules list, S_19 black+red theme). */
+.rules-tabs{display:flex;gap:6px;overflow-x:auto;padding:4px 0 10px;scrollbar-width:none}
+.rules-tabs::-webkit-scrollbar{display:none}
+.rules-tabs button{flex:0 0 auto;background:#1e1e1e;border:1px solid var(--line);color:#fff;border-radius:20px;padding:7px 11px;font-size:11px;white-space:nowrap}
+.rules-tabs button.on{background:var(--red);border-color:var(--red);font-weight:700}
+.rules-card{padding:14px}
+.rules-title{color:#22d3ee;text-align:center;font-size:16px;font-weight:800;line-height:1.4;margin:4px 0 10px}
+.rules-sub{font-size:12px;line-height:1.6;margin:0 0 8px}
+.rules-points{margin:4px 0 12px}
+.rules-points-h{text-align:center;font-size:15px;font-weight:800;margin:6px 0 8px}
+.rules-points .pt-row{display:flex;justify-content:space-between;padding:7px 10px;border-bottom:1px solid #222;font-size:13px}
+.rules-points .pt-row b{color:var(--gold)}
+.rules-points .pt-top1 b{color:#ffd700}
+.rules-points .pt-top2 b{color:#c0c0c0}
+.rules-points .pt-top3 b{color:#cd7f32}
+.rules-points .pt-kill{color:#ff5b6a;text-align:center;font-weight:800;padding:10px 0 2px;font-size:14px}
+.rules-points .pt-final{color:var(--txt);text-align:center;padding:4px 0 6px;font-size:13px}
+.rules-settings{grid-template-columns:1fr 1fr;margin-bottom:12px}
+.rules-settings .tile-wide{grid-column:1/-1}
+.rules-card .rulelist li{margin-bottom:8px;line-height:1.6}
