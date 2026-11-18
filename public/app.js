@@ -4,6 +4,8 @@ const TELEGRAM_URL = 'https://t.me/S_19Tournament';
 window.openTelegram = () => window.open(TELEGRAM_URL, '_blank', 'noopener');
 const WHATSAPP_URL = 'https://whatsapp.com/channel/0029VbEa1cW6GcG8OPN7Pg0O';
 window.openWhatsApp = () => window.open(WHATSAPP_URL, '_blank', 'noopener');
+const YOUTUBE_URL = 'https://www.youtube.com/@voice_of_bijoy-S_19';
+window.openYouTube = () => window.open(YOUTUBE_URL, '_blank', 'noopener');
 const COUNTRIES = [
   ['BD','Bangladesh','880'],
   ['AF','Afghanistan','93'],
@@ -1249,7 +1251,7 @@ function matchCard(m) {
 function playHTML() {
   return `${topbarHTML()}<div class="wrap">
   <div class="banner-carousel">
-    <div class="car-slide car-img on"><img src="/banner-home.jpg" alt="S_19 Tournament home screen"></div>
+    <div class="car-slide car-img on" onclick="openYouTube()"><img src="/banner-official.jpg" alt="S_19 Official — Voice of Bijoy YouTube channel"></div>
     <div class="car-slide car-img" onclick="openTelegram()"><img src="/banner-telegram.jpg" alt="Join the S_19 Telegram channel"></div>
     <div class="car-slide car-img" onclick="openWhatsApp()"><img src="/banner-whatsapp.jpg" alt="Join the S_19 WhatsApp channel"></div>
     <div class="car-dots"><button class="car-dot on" onclick="bannerGo(0)" aria-label="Slide 1"></button><button class="car-dot" onclick="bannerGo(1)" aria-label="Slide 2"></button><button class="car-dot" onclick="bannerGo(2)" aria-label="Slide 3"></button></div>
