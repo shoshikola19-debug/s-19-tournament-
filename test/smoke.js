@@ -532,7 +532,7 @@ function req(method, p, body, token) {
     const man = await fetch('http://127.0.0.1:3101/manifest.webmanifest');
     assert.strictEqual(man.status, 200, 'manifest serves');
     const sw = await (await fetch('http://127.0.0.1:3101/sw.js')).text();
-    assert.ok(sw.includes('s19-tournament-v15'), 'sw cache bumped to v15 so phones fetch the new shell');
+    assert.ok(sw.includes('s19-tournament-v16'), 'sw cache bumped to v16 so phones fetch the new shell');
     const idx = await (await fetch('http://127.0.0.1:3101/')).text();
     assert.ok(idx.includes('appinstalled'), 'index tracks install state (Download button stays visible)');
     const icon = await fetch('http://127.0.0.1:3101/icon-512.png');
