@@ -208,8 +208,18 @@ h3{font-size:14px;margin-bottom:6px}
 .squad-box .muted{margin-top:4px}
 /* bottom nav — active tab gets a red bar on top (Play in the centre) */
 .bottomnav button.on{color:var(--red2);box-shadow:inset 0 3px 0 var(--red2)}
-/* telegram banner slide (S_19 style — tap opens Support, no handle invented) */
+/* telegram banner slide (tap opens the S_19 Telegram channel) */
 .car-telegram{background:linear-gradient(135deg,rgba(42,167,219,.22),transparent 65%)}
+/* JOIN OUR COMMUNITY — Telegram button (black + red app, blue Telegram button) */
+.community-sec{margin-top:12px}
+.community-title{font-size:11px;font-weight:800;letter-spacing:2px;color:#999;text-align:center;margin-bottom:8px}
+.tg-btn{display:flex;align-items:center;gap:12px;width:100%;background:linear-gradient(180deg,#2aabee,#229ed9);border:none;border-radius:16px;padding:13px 14px;color:#fff;cursor:pointer;box-shadow:0 4px 16px rgba(34,158,217,.4);text-align:left}
+.tg-btn:active{transform:scale(.98)}
+.tg-ic{font-size:22px;flex:0 0 auto}
+.tg-tx{display:flex;flex-direction:column;gap:1px;flex:1;min-width:0}
+.tg-tx b{font-size:14px;letter-spacing:.5px}
+.tg-tx span{font-size:11px;opacity:.9}
+.tg-arrow{font-size:22px;font-weight:700;flex:0 0 auto}
 /* floating chat button */
 .chat-fab{position:fixed;right:14px;bottom:80px;z-index:30;width:48px;height:48px;border-radius:50%;border:none;background:linear-gradient(180deg,var(--red2),var(--red));color:#fff;font-size:20px;box-shadow:0 6px 20px rgba(229,9,20,.55);animation:fabFloat 2.4s ease-in-out infinite}
 .chat-fab:active{transform:scale(.92)}
