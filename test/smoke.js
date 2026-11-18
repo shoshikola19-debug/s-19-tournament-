@@ -57,6 +57,37 @@ function req(method, p, body, token) {
     const rt = list2.data.tournaments.find((t) => t.id === mkRoom.data.id);
     assert.strictEqual(rt.roomId, '', 'room hidden before reveal');
     assert.strictEqual(rt.hasRoom, true, 'hasRoom true when room set');
+    // pause / resume: only upcoming or live can pause; nobody can join
+    // while paused; resume puts the match back where it was
+    const mkPause = await req('POST', '/api/tournaments', { title: 'Pause Test', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: '2026-11-19', matchTime: '21:00', prizePool: 800, entryFee: 20, perKillPrize: 10 }, ownerToken);
+    assert.strictEqual(mkPause.status, 200, 'create pause-test match: ' + JSON.stringify(mkPause.data));
+    const pauseId = mkPause.data.id;
+    const pauseNoAuth = await req('POST', `/api/tournaments/${pauseId}/pause`, {}, 'bad-token');
+    assert.strictEqual(pauseNoAuth.status, 401, 'pause needs a login');
+    const pauseOk = await req('POST', `/api/tournaments/${pauseId}/pause`, {}, ownerToken);
+    assert.strictEqual(pauseOk.status, 200, 'owner pauses upcoming match: ' + JSON.stringify(pauseOk.data));
+    const pausedList = await req('GET', '/api/tournaments');
+    assert.strictEqual(pausedList.data.tournaments.find((t) => t.id === pauseId).status, 'paused', 'paused match shows paused');
+    const bookPaused = await req('POST', `/api/tournaments/${pauseId}/book`, { playerName: 'bijoy' }, ownerToken);
+    assert.strictEqual(bookPaused.status, 400, 'cannot join a paused match');
+    assert.ok(/paused/i.test(bookPaused.data.error), 'paused error message, got: ' + bookPaused.data.error);
+    const pauseAgain = await req('POST', `/api/tournaments/${pauseId}/pause`, {}, ownerToken);
+    assert.strictEqual(pauseAgain.status, 400, 'cannot pause an already paused match');
+    const resumeOk = await req('POST', `/api/tournaments/${pauseId}/resume`, {}, ownerToken);
+    assert.strictEqual(resumeOk.status, 200, 'owner resumes: ' + JSON.stringify(resumeOk.data));
+    assert.strictEqual(resumeOk.data.status, 'upcoming', 'resume puts upcoming match back to upcoming');
+    const resumeAgain = await req('POST', `/api/tournaments/${pauseId}/resume`, {}, ownerToken);
+    assert.strictEqual(resumeAgain.status, 400, 'cannot resume a match that is not paused');
+    // live match: pause then resume returns it to live
+    const liveOk = await req('POST', `/api/tournaments/${pauseId}/status`, { status: 'live' }, ownerToken);
+    assert.strictEqual(liveOk.status, 200, 'start live: ' + JSON.stringify(liveOk.data));
+    await req('POST', `/api/tournaments/${pauseId}/pause`, {}, ownerToken);
+    const resumeLive = await req('POST', `/api/tournaments/${pauseId}/resume`, {}, ownerToken);
+    assert.strictEqual(resumeLive.data.status, 'live', 'resume puts live match back to live');
+    // finished match cannot be paused
+    await req('POST', `/api/tournaments/${pauseId}/status`, { status: 'finished' }, ownerToken);
+    const pauseFin = await req('POST', `/api/tournaments/${pauseId}/pause`, {}, ownerToken);
+    assert.strictEqual(pauseFin.status, 400, 'cannot pause a finished match');
     // avatar: invalid rejected, valid data URL saved and returned in /api/me
     const avBad = await req('POST', '/api/profile/avatar', { avatar: 'not-an-image' }, ownerToken);
     assert.strictEqual(avBad.status, 400, 'bad avatar rejected');
@@ -105,6 +136,8 @@ function req(method, p, body, token) {
     assert.strictEqual(regNa.status, 200, 'non-admin user register');
     const pendNoAuth = await req('GET', '/api/admin/transactions', null, regNa.data.token);
     assert.strictEqual(pendNoAuth.status, 403, 'non-admin cannot list payment requests');
+    const pauseNoAdmin = await req('POST', '/api/tournaments/2/pause', {}, regNa.data.token);
+    assert.strictEqual(pauseNoAdmin.status, 403, 'non-admin cannot pause a match');
     const rej = await req('POST', `/api/transactions/${dep2.data.id}/review`, { approve: false }, ownerToken);
     assert.strictEqual(rej.status, 200, 'reject deposit');
     me = await req('GET', '/api/me', null, ownerToken);
@@ -131,6 +164,11 @@ function req(method, p, body, token) {
     assert.strictEqual(reg2.status, 200, 'second user register: ' + JSON.stringify(reg2.data));
     const tok2 = reg2.data.token;
     await req('POST', '/api/profile', { ign: 'squadmate', uid: '1234567890' }, tok2);
+    // CS 4v4 now has a real entry fee (ZVY price 50) — fund the squadmate first.
+    const sqDep = await req('POST', '/api/deposit', { amount: 100, method: 'bkash', senderNumber: '01912345678', trxId: 'SQDEPTX01' }, tok2);
+    assert.strictEqual(sqDep.status, 200, 'squadmate deposit request: ' + JSON.stringify(sqDep.data));
+    const sqAppr = await req('POST', `/api/transactions/${sqDep.data.id}/review`, { approve: true }, ownerToken);
+    assert.strictEqual(sqAppr.status, 200, 'approve squadmate deposit');
     const sq = await req('POST', '/api/tournaments/5/book', { slotNumber: 1, playerName: 'squadmate', squadNames: ['mate1', 'mate2', 'mate3'] }, tok2);
     assert.strictEqual(sq.status, 200, 'squad book CS 4v4: ' + JSON.stringify(sq.data));
     const sqBad = await req('POST', '/api/tournaments/5/book', { slotNumber: 2, playerName: 'squadmate', squadNames: ['a', 'b', 'c', 'd'] }, tok2);
@@ -499,7 +537,7 @@ function req(method, p, body, token) {
     // team boxes, Match Full, tutorial, Remember Me, Forgot, results tabs,
     // support modal + animations must be present in served files
     const appJs = await (await fetch('http://127.0.0.1:3101/app.js')).text();
-    for (const s of ['banner-carousel', 'banner-room-rules', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'TOPUP BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'Join Telegram Channel', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'joinFlowOf', 'playerNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled', 'App already installed? Uninstall the old S_19 TOUR app first, then tap Download again.', 'Already have the old app? Uninstall it first, then install again to get the latest version.', "profile.isAdmin) items.push(['admin', 'gear', 'Admin']", 'Admin gets a separate Admin tab', 'ad-prize1', 'em-prize1', 'Match Prizes', '1st Prize', '2nd Prize', 'prize1', 'avatar-ring', 'avatar-img', 'avatar-cam', 'uploadAvatar', 'copyS19Id', 'profile-tiles', 'profile-tile', 'menu-list', 'menu-row', 'BDT', 'Edit Profile', 'Daily Spin', 'All Rules', 'Leaderboard', 'wallet-hero', 'Available Balance', 'DEPOSITED', 'WINNING', 'Transfer Balance', 'openTransfer', 'transfer-balance', 'Transfer to Deposit', 'BKASH &amp; NAGAD', 'Proceed to Payment', '10 - 1000', 'minimum of 10 Taka', 'maximum of 1000', 'Transaction History', 'openTxHistory', 'How to add money?', 'openHowToAddMoney', 'How to join a match?', 'How to withdraw?', 'openHowToWithdraw', 'Nagad number not added yet', 'Nagad number will be added later', 'depPickGateway', 'depPickMethod', 'depCheck', 'depStep2', 'match-head', 'match-date', 'fmtDateTime', 'tile-ic', 'reg-row', 'join-btn', 'tutorial-pill', 'ad-slots', 'em-slots', 'Total Slots', 'adSlotsDefault', 'SLOT_DEFAULTS', 'Email / Username / Phone', 'Email, username or phone number', 'already exists', 'already taken', 'Send Code', 'Resend Code', 'Enter Reset Code', 'forgot-password/request', 'forgot-password/verify', 'Password Reset Requests', 'reset-requests', 'cancelReset', 'doForgotSend', 'doForgotVerify', 'topupHTML', 'topupSoon', 'Top-up coming soon', 'FREE FIRE TOPUP BD SERVER', 'INDONESIA SERVER', 'UID TOPUP', 'Level Up Pass', 'Weekly Lite', 'Weekly & Monthly', 'topup-grid', 'topup-card', 'topup-banner', 'TOPUP_PACKS_BD', 'TOPUP_PACKS_ID', 'daily-spin', 'spin-wheel', 'Spin Now', 'Next Spin in', 'Use free pass', 'SPIN_SEGMENTS', 'openSpin', 'doSpin', 'passForMatch', 'spin-counters', 'spin-head', 'spin-hub', 'spin-countdown', 'You won a free', 'Better luck tomorrow', 'spinState', 'usedPass', 'Payment Requests', 'admin/transactions', 'reviewTx', 'payreq', 'Verify this TrxID', 'Fake TrxIDs must be rejected', 'I verified this transaction', 'toggleApproveBtn', 'payInfo.bkashNumber', 'payInfo.nagadNumber', 'payInfo.rocketNumber', 'App Settings', 'saveAppSettings', 'Players', 'toggleBan', 'app-config', 'loadAppConfig', 'noticeRules', 'withdrawInfoText', 'Daily Spin is currently disabled', 'Daily Spin is off', 'togglePw', 'pw-wrap', 'pw-eye', 'err.status', "return 'network'", 'unauthorized']) {
+    for (const s of ['banner-carousel', 'banner-room-rules', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', '⏸ Paused', '⏸ Pause', '▶ Resume', 'pauseMatch', 'resumeMatch', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'TOPUP BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'Join Telegram Channel', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'joinFlowOf', 'playerNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled', 'App already installed? Uninstall the old S_19 TOUR app first, then tap Download again.', 'Already have the old app? Uninstall it first, then install again to get the latest version.', "profile.isAdmin) items.push(['admin', 'gear', 'Admin']", 'Admin gets a separate Admin tab', 'ad-prize1', 'em-prize1', 'Match Prizes', '1st Prize', '2nd Prize', 'prize1', 'avatar-ring', 'avatar-img', 'avatar-cam', 'uploadAvatar', 'copyS19Id', 'profile-tiles', 'profile-tile', 'menu-list', 'menu-row', 'BDT', 'Edit Profile', 'Daily Spin', 'All Rules', 'Leaderboard', 'wallet-hero', 'Available Balance', 'DEPOSITED', 'WINNING', 'Transfer Balance', 'openTransfer', 'transfer-balance', 'Transfer to Deposit', 'BKASH &amp; NAGAD', 'Proceed to Payment', '10 - 1000', 'minimum of 10 Taka', 'maximum of 1000', 'Transaction History', 'openTxHistory', 'How to add money?', 'openHowToAddMoney', 'How to join a match?', 'How to withdraw?', 'openHowToWithdraw', 'Nagad number not added yet', 'Nagad number will be added later', 'depPickGateway', 'depPickMethod', 'depCheck', 'depStep2', 'match-head', 'match-date', 'fmtDateTime', 'tile-ic', 'reg-row', 'join-btn', 'tutorial-pill', 'ad-slots', 'em-slots', 'Total Slots', 'adSlotsDefault', 'SLOT_DEFAULTS', 'Email / Username / Phone', 'Email, username or phone number', 'already exists', 'already taken', 'Send Code', 'Resend Code', 'Enter Reset Code', 'forgot-password/request', 'forgot-password/verify', 'Password Reset Requests', 'reset-requests', 'cancelReset', 'doForgotSend', 'doForgotVerify', 'topupHTML', 'topupSoon', 'Top-up coming soon', 'FREE FIRE TOPUP BD SERVER', 'INDONESIA SERVER', 'UID TOPUP', 'Level Up Pass', 'Weekly Lite', 'Weekly & Monthly', 'topup-grid', 'topup-card', 'topup-banner', 'TOPUP_PACKS_BD', 'TOPUP_PACKS_ID', 'daily-spin', 'spin-wheel', 'Spin Now', 'Next Spin in', 'Use free pass', 'SPIN_SEGMENTS', 'openSpin', 'doSpin', 'passForMatch', 'spin-counters', 'spin-head', 'spin-hub', 'spin-countdown', 'You won a free', 'Better luck tomorrow', 'spinState', 'usedPass', 'Payment Requests', 'admin/transactions', 'reviewTx', 'payreq', 'Verify this TrxID', 'Fake TrxIDs must be rejected', 'I verified this transaction', 'toggleApproveBtn', 'payInfo.bkashNumber', 'payInfo.nagadNumber', 'payInfo.rocketNumber', 'App Settings', 'saveAppSettings', 'Players', 'toggleBan', 'app-config', 'loadAppConfig', 'noticeRules', 'withdrawInfoText', 'Daily Spin is currently disabled', 'Daily Spin is off', 'togglePw', 'pw-wrap', 'pw-eye', 'err.status', "return 'network'", 'unauthorized']) {
       assert.ok(appJs.includes(s), 'app.js missing: ' + s);
     }
     // Download button is always rendered on the landing page now — it is
@@ -532,7 +570,7 @@ function req(method, p, body, token) {
     const man = await fetch('http://127.0.0.1:3101/manifest.webmanifest');
     assert.strictEqual(man.status, 200, 'manifest serves');
     const sw = await (await fetch('http://127.0.0.1:3101/sw.js')).text();
-    assert.ok(sw.includes('s19-tournament-v17'), 'sw cache bumped to v17 so phones fetch the new shell');
+    assert.ok(sw.includes('s19-tournament-v18'), 'sw cache bumped to v18 so phones fetch the new shell');
     const idx = await (await fetch('http://127.0.0.1:3101/')).text();
     assert.ok(idx.includes('appinstalled'), 'index tracks install state (Download button stays visible)');
     const icon = await fetch('http://127.0.0.1:3101/icon-512.png');
