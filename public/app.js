@@ -1295,6 +1295,7 @@ function playHTML() {
     <div class="community-title">JOIN OUR COMMUNITY</div>
     <button class="tg-btn" onclick="openTelegram()"><span class="tg-ic">✈️</span><span class="tg-tx"><b>Join Telegram Channel</b><span>Match updates, results &amp; announcements</span></span><span class="tg-arrow">›</span></button>
     <button class="wa-btn" onclick="openWhatsApp()"><span class="tg-ic">💬</span><span class="tg-tx"><b>Join WhatsApp Channel</b><span>Match updates, results &amp; announcements</span></span><span class="tg-arrow">›</span></button>
+    <button class="yt-btn" onclick="openYouTube()"><span class="tg-ic">▶</span><span class="tg-tx"><b>Subscribe on YouTube</b><span>Voice of Bijoy</span></span><span class="tg-arrow">›</span></button>
   </div>
   </div>${bottomnavHTML()}`;
 }
