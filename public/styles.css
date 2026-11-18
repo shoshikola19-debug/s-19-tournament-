@@ -230,6 +230,10 @@ h3{font-size:14px;margin-bottom:6px}
 /* WhatsApp button — same layout as Telegram, green WhatsApp gradient */
 .wa-btn{display:flex;align-items:center;gap:12px;width:100%;background:linear-gradient(180deg,#25d366,#1da851);border:none;border-radius:16px;padding:13px 14px;color:#fff;cursor:pointer;box-shadow:0 4px 16px rgba(37,211,102,.4);text-align:left}
 .wa-btn:active{transform:scale(.98)}
+/* YouTube subscribe button — same layout as Telegram/WhatsApp, red YouTube gradient.
+   Tap only opens the Voice of Bijoy channel; subscribing itself happens on YouTube. */
+.yt-btn{display:flex;align-items:center;gap:12px;width:100%;background:linear-gradient(180deg,#ff1e2d,#c00);border:none;border-radius:16px;padding:13px 14px;color:#fff;cursor:pointer;box-shadow:0 4px 16px rgba(255,0,0,.4);text-align:left;margin-top:8px}
+.yt-btn:active{transform:scale(.98)}
 .tg-ic{font-size:22px;flex:0 0 auto}
 .tg-tx{display:flex;flex-direction:column;gap:1px;flex:1;min-width:0}
 .tg-tx b{font-size:14px;letter-spacing:.5px}
