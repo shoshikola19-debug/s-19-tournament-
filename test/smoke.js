@@ -747,11 +747,17 @@ function req(method, p, body, token) {
     const man = await fetch('http://127.0.0.1:3101/manifest.webmanifest');
     assert.strictEqual(man.status, 200, 'manifest serves');
     const sw = await (await fetch('http://127.0.0.1:3101/sw.js')).text();
-    assert.ok(sw.includes('s19-tournament-v21'), 'sw cache bumped to v21 so phones fetch the new shell');
+    assert.ok(sw.includes('s19-tournament-v22'), 'sw cache bumped to v22 so phones fetch the new shell');
     const idx = await (await fetch('http://127.0.0.1:3101/')).text();
     assert.ok(idx.includes('appinstalled'), 'index tracks install state (Download button stays visible)');
     const icon = await fetch('http://127.0.0.1:3101/icon-512.png');
     assert.strictEqual(icon.status, 200, 'icon serves');
+    assert.ok(appJs.includes('Share App — QR Code') && appJs.includes('/app-qr.png') && appJs.includes('copyAppLink'), 'App Settings has Share App QR section with tap-to-copy link');
+    assert.ok(css.includes('.qr-share') && css.includes('.qr-img'), 'QR share styles present');
+    assert.ok(sw.includes('/app-qr.png'), 'sw precaches the QR image');
+    const qrImg = await fetch('http://127.0.0.1:3101/app-qr.png');
+    assert.strictEqual(qrImg.status, 200, 'QR image serves');
+    assert.ok(Number(qrImg.headers.get('content-length')) > 50000, 'QR image is the real logo QR (not empty)');
     console.log('SMOKE OK — all checks passed');
   } catch (e) {
     console.error('SMOKE FAIL:', e.message);
