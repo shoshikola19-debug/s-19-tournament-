@@ -7,6 +7,11 @@ process.env.PORT = '3101';
 const DB = path.join(__dirname, '..', 'data', 's19-tournament.db');
 try { fs.unlinkSync(DB); } catch (e) {}
 const server = require('child_process');
+// Dates in this suite must stay in the future: the seeded matches are
+// 2026-11-18/19, so a run on a later day would see them as already
+// started (bookings rejected, rooms revealed). FUT is 7 days out.
+const FUT = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+const FUT2 = new Date(Date.now() + 8 * 86400000).toISOString().slice(0, 10);
 const assert = require('assert');
 
 function req(method, p, body, token) {
@@ -34,8 +39,8 @@ function req(method, p, body, token) {
 
     const list = await req('GET', '/api/tournaments');
     assert.strictEqual(list.data.tournaments.length, 10, '10 seeded tournaments, got ' + list.data.tournaments.length);
-    // NOTE: seed LW 1v1 (id 1) carries room S19LW1V1, but its reveal time
-    // (2026-11-18 18:40) has passed, so its roomId is visible now — the
+    // NOTE: the seeded matches were moved to FUT above, so seed LW 1v1
+    // (id 1) and its room S19LW1V1 stay hidden until reveal — the
     // hidden-before-reveal check below uses a fresh future match instead.
     const br = list.data.tournaments.find((t) => t.id === 2);
     assert.strictEqual(br.prizePool, 800, 'BR Solo prize 800');
@@ -46,12 +51,18 @@ function req(method, p, body, token) {
     assert.strictEqual(reg.status, 200, 'owner register: ' + JSON.stringify(reg.data));
     assert.strictEqual(reg.data.profile.isAdmin, true, 'owner is admin');
     const ownerToken = reg.data.token;
+    // Move the 10 seeded matches (2026-11-18/19) to a future date, or
+    // every booking below fails "Match already started" on later runs.
+    for (let id = 1; id <= 10; id++) {
+      const mv = await req('PUT', `/api/tournaments/${id}`, { matchDate: FUT }, ownerToken);
+      assert.strictEqual(mv.status, 200, 'move seeded match to future: ' + id);
+    }
 
     // profile + UID, then deposit request (bad trx rejected, good one pending)
     await req('POST', '/api/profile', { ign: 'bijoy', uid: '4813953777' }, ownerToken);
 
     // room hidden before reveal: fresh future match with a room set
-    const mkRoom = await req('POST', '/api/tournaments', { title: 'Room Test', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: '2026-11-19', matchTime: '20:00', prizePool: 800, entryFee: 20, perKillPrize: 10, roomId: 'TESTROOM1', roomPassword: 'testpass' }, ownerToken);
+    const mkRoom = await req('POST', '/api/tournaments', { title: 'Room Test', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: FUT, matchTime: '20:00', prizePool: 800, entryFee: 20, perKillPrize: 10, roomId: 'TESTROOM1', roomPassword: 'testpass' }, ownerToken);
     assert.strictEqual(mkRoom.status, 200, 'create room-test match: ' + JSON.stringify(mkRoom.data));
     const list2 = await req('GET', '/api/tournaments');
     const rt = list2.data.tournaments.find((t) => t.id === mkRoom.data.id);
@@ -59,7 +70,7 @@ function req(method, p, body, token) {
     assert.strictEqual(rt.hasRoom, true, 'hasRoom true when room set');
     // pause / resume: only upcoming or live can pause; nobody can join
     // while paused; resume puts the match back where it was
-    const mkPause = await req('POST', '/api/tournaments', { title: 'Pause Test', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: '2026-11-19', matchTime: '21:00', prizePool: 800, entryFee: 20, perKillPrize: 10 }, ownerToken);
+    const mkPause = await req('POST', '/api/tournaments', { title: 'Pause Test', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: FUT, matchTime: '21:00', prizePool: 800, entryFee: 20, perKillPrize: 10 }, ownerToken);
     assert.strictEqual(mkPause.status, 200, 'create pause-test match: ' + JSON.stringify(mkPause.data));
     const pauseId = mkPause.data.id;
     const pauseNoAuth = await req('POST', `/api/tournaments/${pauseId}/pause`, {}, 'bad-token');
@@ -186,7 +197,7 @@ function req(method, p, body, token) {
 
     // rank prizes: admin creates a BR Solo match with 1st-5th set, edits one,
     // and the result payout uses the admin-set rank prize
-    const mk = await req('POST', '/api/tournaments', { title: 'BR Solo — Rank Test', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: '2026-11-20', matchTime: '19:00', prizePool: 800, entryFee: 20, prize1: 90, prize2: 70, prize3: 40, prize4: 30, prize5: 20, perKillPrize: 10 }, ownerToken);
+    const mk = await req('POST', '/api/tournaments', { title: 'BR Solo — Rank Test', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: FUT2, matchTime: '19:00', prizePool: 800, entryFee: 20, prize1: 90, prize2: 70, prize3: 40, prize4: 30, prize5: 20, perKillPrize: 10 }, ownerToken);
     assert.strictEqual(mk.status, 200, 'create match with rank prizes: ' + JSON.stringify(mk.data));
     const rankList = await req('GET', '/api/tournaments');
     const rankM = rankList.data.tournaments.find((t) => t.id === mk.data.id);
@@ -202,21 +213,21 @@ function req(method, p, body, token) {
     me = await req('GET', '/api/me', null, ownerToken);
     assert.strictEqual(me.data.wallet.winningBalance, 260, 'winning 160 fallback + 100 rank prize, got ' + me.data.wallet.winningBalance);
     // match created without rank prizes: fields default to 0 (fallback still applies in popup/results)
-    const mk2 = await req('POST', '/api/tournaments', { title: 'CS 1v1 — No Rank', category: 'cs', subcategory: '1v1', mode: 'solo', matchType: 'clash_squad', matchDate: '2026-11-20', matchTime: '20:00', prizePool: 100, entryFee: 10, perKillPrize: 0 }, ownerToken);
+    const mk2 = await req('POST', '/api/tournaments', { title: 'CS 1v1 — No Rank', category: 'cs', subcategory: '1v1', mode: 'solo', matchType: 'clash_squad', matchDate: FUT2, matchTime: '20:00', prizePool: 100, entryFee: 10, perKillPrize: 0 }, ownerToken);
     assert.strictEqual(mk2.status, 200, 'create match without rank prizes');
     const noRank = (await req('GET', '/api/tournaments')).data.tournaments.find((t) => t.id === mk2.data.id);
     assert.strictEqual(noRank.prize1, 0, 'prize1 defaults 0');
     assert.strictEqual(noRank.prize5, 0, 'prize5 defaults 0');
 
     // custom slots: admin sets any totalSlots 2–100; category default only when omitted
-    const slotBad1 = await req('POST', '/api/tournaments', { title: 'Bad Slots 1', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: '2026-11-20', matchTime: '21:00', prizePool: 800, entryFee: 20, totalSlots: 1, perKillPrize: 10 }, ownerToken);
+    const slotBad1 = await req('POST', '/api/tournaments', { title: 'Bad Slots 1', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: FUT2, matchTime: '21:00', prizePool: 800, entryFee: 20, totalSlots: 1, perKillPrize: 10 }, ownerToken);
     assert.strictEqual(slotBad1.status, 400, '1 slot rejected');
-    const slotBad101 = await req('POST', '/api/tournaments', { title: 'Bad Slots 101', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: '2026-11-20', matchTime: '21:00', prizePool: 800, entryFee: 20, totalSlots: 101, perKillPrize: 10 }, ownerToken);
+    const slotBad101 = await req('POST', '/api/tournaments', { title: 'Bad Slots 101', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: FUT2, matchTime: '21:00', prizePool: 800, entryFee: 20, totalSlots: 101, perKillPrize: 10 }, ownerToken);
     assert.strictEqual(slotBad101.status, 400, '101 slots rejected');
-    const mk30 = await req('POST', '/api/tournaments', { title: 'BR Solo — 30 Slots', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: '2026-11-20', matchTime: '21:00', prizePool: 800, entryFee: 20, totalSlots: 30, perKillPrize: 10 }, ownerToken);
+    const mk30 = await req('POST', '/api/tournaments', { title: 'BR Solo — 30 Slots', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: FUT2, matchTime: '21:00', prizePool: 800, entryFee: 20, totalSlots: 30, perKillPrize: 10 }, ownerToken);
     assert.strictEqual(mk30.status, 200, 'create BR Solo with 30 slots: ' + JSON.stringify(mk30.data));
     assert.strictEqual((await req('GET', '/api/tournaments')).data.tournaments.find((t) => t.id === mk30.data.id).totalSlots, 30, 'custom 30 slots saved');
-    const mkDef = await req('POST', '/api/tournaments', { title: 'BR Solo — Default Slots', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: '2026-11-20', matchTime: '22:30', prizePool: 800, entryFee: 20, perKillPrize: 10 }, ownerToken);
+    const mkDef = await req('POST', '/api/tournaments', { title: 'BR Solo — Default Slots', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: FUT2, matchTime: '22:30', prizePool: 800, entryFee: 20, perKillPrize: 10 }, ownerToken);
     assert.strictEqual(mkDef.status, 200, 'create without totalSlots');
     assert.strictEqual((await req('GET', '/api/tournaments')).data.tournaments.find((t) => t.id === mkDef.data.id).totalSlots, 48, 'default BR Solo 48 slots');
     // BR Solo 48 -> 30 (seeded id 2, 1 booking) and CS 1v1 2 -> 6 (seeded id 6, no bookings)
@@ -231,7 +242,7 @@ function req(method, p, body, token) {
     assert.strictEqual(reg3.status, 200, 'third user register: ' + JSON.stringify(reg3.data));
     const tok3 = reg3.data.token;
     await req('POST', '/api/profile', { ign: 'third', uid: '9999999999' }, tok3);
-    const mkG = await req('POST', '/api/tournaments', { title: 'Guard Test — 6 Slots', category: 'cs', subcategory: '1v1', mode: 'solo', matchType: 'clash_squad', matchDate: '2026-11-20', matchTime: '22:00', prizePool: 100, entryFee: 0, totalSlots: 6, perKillPrize: 0 }, ownerToken);
+    const mkG = await req('POST', '/api/tournaments', { title: 'Guard Test — 6 Slots', category: 'cs', subcategory: '1v1', mode: 'solo', matchType: 'clash_squad', matchDate: FUT2, matchTime: '22:00', prizePool: 100, entryFee: 0, totalSlots: 6, perKillPrize: 0 }, ownerToken);
     assert.strictEqual(mkG.status, 200, 'guard match created');
     const guardBooks = [[ownerToken, 'bijoy', 1], [tok2, 'squadmate', 2], [tok3, 'third', 3]];
     for (const [tk, nm, sl] of guardBooks) {
@@ -316,7 +327,7 @@ function req(method, p, body, token) {
     // Fresh BR match: mkDef already has the owner's paid booking above, and
     // one profile can only hold one slot per match, so the category-first
     // check needs its own match.
-    const mkCat = await req('POST', '/api/tournaments', { title: 'BR Solo — Cat First', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: '2026-11-20', matchTime: '23:00', prizePool: 800, entryFee: 20, totalSlots: 48, perKillPrize: 10 }, ownerToken);
+    const mkCat = await req('POST', '/api/tournaments', { title: 'BR Solo — Cat First', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: FUT2, matchTime: '23:00', prizePool: 800, entryFee: 20, totalSlots: 48, perKillPrize: 10 }, ownerToken);
     assert.strictEqual(mkCat.status, 200, 'cat-first match created: ' + JSON.stringify(mkCat.data));
     const bookCatFirst = await req('POST', `/api/tournaments/${mkCat.data.id}/book`, { slotNumber: 1, playerName: 'bijoy', usePass: true }, ownerToken);
     assert.strictEqual(bookCatFirst.status, 200, 'category+all pass join: ' + JSON.stringify(bookCatFirst.data));
@@ -545,6 +556,87 @@ function req(method, p, body, token) {
     const promoteMissing = await req('POST', '/api/admin/players/99999/promote', {}, ownerToken2);
     assert.strictEqual(promoteMissing.status, 404, 'promote missing player 404');
 
+    // moderator role + group-level permissions (all toggles OFF by default)
+    const allOff = { create_match: false, edit_match: false, delete_match: false, pause_match: false, review_bookings: false, review_payments: false, publish_results: false, ban_players: false, manage_roles: false, app_settings: false };
+    const modPermsDefault = await req('GET', '/api/mod-permissions', null, ownerToken2);
+    assert.strictEqual(modPermsDefault.status, 200, 'owner reads mod permissions');
+    assert.deepStrictEqual(modPermsDefault.data.permissions, allOff, 'all mod permissions OFF by default');
+    const modPermsNoAuth = await req('GET', '/api/mod-permissions', null, regNa.data.token);
+    assert.strictEqual(modPermsNoAuth.status, 403, 'non-admin cannot read mod permissions');
+    // a partner cannot change moderator permissions — only the owner can
+    const regPartner2 = await req('POST', '/api/register', { username: 'partner2', email: 'partner2@example.com', phone: '+8801910000002', password: 'test1234' });
+    assert.strictEqual(regPartner2.status, 200, 'second user register');
+    const promote2 = await req('POST', `/api/admin/players/${regPartner2.data.profile.id}/promote`, {}, ownerToken2);
+    assert.strictEqual(promote2.status, 200, 'promote second partner');
+    const putPermsPartner = await req('PUT', '/api/mod-permissions', { create_match: true }, regPartner2.data.token);
+    assert.strictEqual(putPermsPartner.status, 403, 'partner cannot change moderator permissions');
+    const demote2 = await req('POST', `/api/admin/players/${regPartner2.data.profile.id}/demote`, {}, ownerToken2);
+    assert.strictEqual(demote2.status, 200, 'demote second partner');
+    // make moderator: non-admin 403, owner-as-moderator 400, then owner makes plainuser a moderator
+    const makeModNoAuth = await req('POST', `/api/admin/players/${plain.id}/make-moderator`, {}, regNa.data.token);
+    assert.strictEqual(makeModNoAuth.status, 403, 'non-admin cannot make moderator');
+    const makeModOwner = await req('POST', `/api/admin/players/${me.data.profile.id}/make-moderator`, {}, ownerToken2);
+    assert.strictEqual(makeModOwner.status, 400, 'owner cannot be made moderator');
+    const makeMod = await req('POST', `/api/admin/players/${plain.id}/make-moderator`, {}, ownerToken2);
+    assert.strictEqual(makeMod.status, 200, 'make moderator: ' + JSON.stringify(makeMod.data));
+    assert.strictEqual(makeMod.data.isModerator, true, 'make-moderator returns isModerator');
+    const meMod = await req('GET', '/api/me', null, regNa.data.token);
+    assert.strictEqual(meMod.data.profile.isModerator, true, 'moderator sees isModerator in /api/me');
+    assert.strictEqual(meMod.data.profile.isAdmin, false, 'moderator is not admin');
+    assert.deepStrictEqual(meMod.data.permissions, allOff, 'moderator permissions all OFF by default');
+    const modPlayers = await req('GET', '/api/admin/players', null, regNa.data.token);
+    assert.strictEqual(modPlayers.status, 200, 'moderator can open the Admin Panel (players list)');
+    const modRow = modPlayers.data.players.find((p) => p.username === 'plainuser');
+    assert.strictEqual(modRow.isModerator, true, 'moderator flag in players list');
+    // with everything OFF, a moderator cannot do any admin action
+    const modCreate = await req('POST', '/api/tournaments', { title: 'Mod Test', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: FUT, matchTime: '21:00' }, regNa.data.token);
+    assert.strictEqual(modCreate.status, 403, 'moderator without create_match cannot create');
+    const modPause = await req('POST', '/api/tournaments/2/pause', {}, regNa.data.token);
+    assert.strictEqual(modPause.status, 403, 'moderator without pause_match cannot pause');
+    const modReview = await req('POST', '/api/bookings/1/review', { approve: true }, regNa.data.token);
+    assert.strictEqual(modReview.status, 403, 'moderator without review_bookings cannot review');
+    const modSettings = await req('PUT', '/api/settings', { appName: 'HACK' }, regNa.data.token);
+    assert.strictEqual(modSettings.status, 403, 'moderator without app_settings cannot change settings');
+    const modBan = await req('POST', `/api/admin/players/${me.data.profile.id}/ban`, { banned: true }, regNa.data.token);
+    assert.strictEqual(modBan.status, 403, 'moderator without ban_players cannot ban');
+    const modResets = await req('GET', '/api/admin/reset-requests', null, regNa.data.token);
+    assert.strictEqual(modResets.status, 403, 'moderator cannot see reset codes');
+    const putPermsNoAuth = await req('PUT', '/api/mod-permissions', { create_match: true }, regNa.data.token);
+    assert.strictEqual(putPermsNoAuth.status, 403, 'moderator cannot change moderator permissions');
+    // owner turns create + pause ON: moderator can create and pause, still cannot delete
+    const putPerms = await req('PUT', '/api/mod-permissions', { create_match: true, pause_match: true }, ownerToken2);
+    assert.strictEqual(putPerms.status, 200, 'owner saves mod permissions');
+    assert.strictEqual(putPerms.data.permissions.create_match, true, 'create_match on');
+    assert.strictEqual(putPerms.data.permissions.pause_match, true, 'pause_match on');
+    assert.strictEqual(putPerms.data.permissions.delete_match, false, 'delete_match stays off');
+    const meMod2 = await req('GET', '/api/me', null, regNa.data.token);
+    assert.strictEqual(meMod2.data.permissions.create_match, true, 'moderator sees create_match on');
+    const modCreate2 = await req('POST', '/api/tournaments', { title: 'Mod Test', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: FUT, matchTime: '21:00' }, regNa.data.token);
+    assert.strictEqual(modCreate2.status, 200, 'moderator with create_match can create');
+    const modMatchId = modCreate2.data.id;
+    const modPause2 = await req('POST', `/api/tournaments/${modMatchId}/pause`, {}, regNa.data.token);
+    assert.strictEqual(modPause2.status, 200, 'moderator with pause_match can pause');
+    const modDelete = await req('DELETE', `/api/tournaments/${modMatchId}`, null, regNa.data.token);
+    assert.strictEqual(modDelete.status, 403, 'moderator without delete_match cannot delete');
+    // a moderator with manage_roles still cannot promote themselves to partner
+    const putManage = await req('PUT', '/api/mod-permissions', { manage_roles: true }, ownerToken2);
+    assert.strictEqual(putManage.status, 200, 'owner turns on manage_roles');
+    const selfPromote = await req('POST', `/api/admin/players/${plain.id}/promote`, {}, regNa.data.token);
+    assert.strictEqual(selfPromote.status, 403, 'moderator cannot promote themselves to partner');
+    // owner turns everything back off; moderator loses the powers again
+    const putOff = await req('PUT', '/api/mod-permissions', { create_match: false, pause_match: false, manage_roles: false }, ownerToken2);
+    assert.strictEqual(putOff.status, 200, 'owner turns toggles off');
+    const modCreate3 = await req('POST', '/api/tournaments', { title: 'Mod Test 2', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: FUT, matchTime: '22:00' }, regNa.data.token);
+    assert.strictEqual(modCreate3.status, 403, 'moderator loses create after toggle off');
+    // owner removes the moderator; admin access goes away entirely
+    const removeMod = await req('POST', `/api/admin/players/${plain.id}/remove-moderator`, {}, ownerToken2);
+    assert.strictEqual(removeMod.status, 200, 'remove moderator');
+    assert.strictEqual(removeMod.data.isModerator, false, 'remove-moderator returns false');
+    const mePlain2 = await req('GET', '/api/me', null, regNa.data.token);
+    assert.strictEqual(mePlain2.data.profile.isModerator, false, 'ex-moderator loses isModerator');
+    const playersAfterMod = await req('GET', '/api/admin/players', null, regNa.data.token);
+    assert.strictEqual(playersAfterMod.status, 403, 'ex-moderator loses admin access');
+
     // payment info + landing page + manifest
     const pay = await req('GET', '/api/payment-info');
     assert.strictEqual(pay.data.bkashNumber, '01906502081', 'bKash number seeded');
@@ -572,7 +664,7 @@ function req(method, p, body, token) {
     // team boxes, Match Full, tutorial, Remember Me, Forgot, results tabs,
     // support modal + animations must be present in served files
     const appJs = await (await fetch('http://127.0.0.1:3101/app.js')).text();
-    for (const s of ['banner-carousel', 'banner-room-rules', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', '⏸ Paused', '⏸ Pause', '▶ Resume', 'pauseMatch', 'resumeMatch', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'TOPUP BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'Join Telegram Channel', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'joinFlowOf', 'playerNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled', 'App already installed? Uninstall the old S_19 TOUR app first, then tap Download again.', 'Already have the old app? Uninstall it first, then install again to get the latest version.', "profile.isAdmin) items.push(['admin', 'gear', 'Admin']", 'Admin gets a separate Admin tab', 'ad-prize1', 'em-prize1', 'Match Prizes', '1st Prize', '2nd Prize', 'prize1', 'avatar-ring', 'avatar-img', 'avatar-cam', 'uploadAvatar', 'copyS19Id', 'profile-tiles', 'profile-tile', 'menu-list', 'menu-row', 'BDT', 'Edit Profile', 'Daily Spin', 'All Rules', 'Leaderboard', 'wallet-hero', 'Available Balance', 'DEPOSITED', 'WINNING', 'Transfer Balance', 'openTransfer', 'transfer-balance', 'Transfer to Deposit', 'BKASH &amp; NAGAD', 'Proceed to Payment', '10 - 1000', 'minimum of 10 Taka', 'maximum of 1000', 'Transaction History', 'openTxHistory', 'How to add money?', 'openHowToAddMoney', 'How to join a match?', 'How to withdraw?', 'openHowToWithdraw', 'Nagad number not added yet', 'Nagad number will be added later', 'depPickGateway', 'depPickMethod', 'depCheck', 'depStep2', 'match-head', 'match-date', 'fmtDateTime', 'tile-ic', 'reg-row', 'join-btn', 'tutorial-pill', 'ad-slots', 'em-slots', 'Total Slots', 'adSlotsDefault', 'SLOT_DEFAULTS', 'Email / Username / Phone', 'Email, username or phone number', 'already exists', 'already taken', 'Send Code', 'Resend Code', 'Enter Reset Code', 'forgot-password/request', 'forgot-password/verify', 'Password Reset Requests', 'reset-requests', 'cancelReset', 'doForgotSend', 'doForgotVerify', 'topupHTML', 'topupSoon', 'Top-up coming soon', 'FREE FIRE TOPUP BD SERVER', 'INDONESIA SERVER', 'UID TOPUP', 'Level Up Pass', 'Weekly Lite', 'Weekly & Monthly', 'topup-grid', 'topup-card', 'topup-banner', 'TOPUP_PACKS_BD', 'TOPUP_PACKS_ID', 'daily-spin', 'spin-wheel', 'Spin Now', 'Next Spin in', 'Use free pass', 'SPIN_SEGMENTS', 'openSpin', 'doSpin', 'passForMatch', 'spin-counters', 'spin-head', 'spin-hub', 'spin-countdown', 'You won a free', 'Better luck tomorrow', 'spinState', 'usedPass', 'Payment Requests', 'admin/transactions', 'reviewTx', 'payreq', 'Verify this TrxID', 'Fake TrxIDs must be rejected', 'I verified this transaction', 'toggleApproveBtn', 'payInfo.bkashNumber', 'payInfo.nagadNumber', 'payInfo.rocketNumber', 'App Settings', 'saveAppSettings', 'Players', 'toggleBan', 'togglePartner', 'Make Partner', 'Remove Partner', 'PARTNER', 'partner-badge', 'promote', 'demote', 'app-config', 'loadAppConfig', 'noticeRules', 'withdrawInfoText', 'Daily Spin is currently disabled', 'Daily Spin is off', 'togglePw', 'pw-wrap', 'pw-eye', 'err.status', "return 'network'", 'unauthorized']) {
+    for (const s of ['banner-carousel', 'banner-room-rules', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', '⏸ Paused', '⏸ Pause', '▶ Resume', 'pauseMatch', 'resumeMatch', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'TOPUP BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'Join Telegram Channel', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'joinFlowOf', 'playerNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled', 'App already installed? Uninstall the old S_19 TOUR app first, then tap Download again.', 'Already have the old app? Uninstall it first, then install again to get the latest version.', "profile.isAdmin || profile.isModerator)) items.push(['admin', 'gear', 'Admin']", 'Admin gets a separate Admin tab', 'ad-prize1', 'em-prize1', 'Match Prizes', '1st Prize', '2nd Prize', 'prize1', 'avatar-ring', 'avatar-img', 'avatar-cam', 'uploadAvatar', 'copyS19Id', 'profile-tiles', 'profile-tile', 'menu-list', 'menu-row', 'BDT', 'Edit Profile', 'Daily Spin', 'All Rules', 'Leaderboard', 'wallet-hero', 'Available Balance', 'DEPOSITED', 'WINNING', 'Transfer Balance', 'openTransfer', 'transfer-balance', 'Transfer to Deposit', 'BKASH &amp; NAGAD', 'Proceed to Payment', '10 - 1000', 'minimum of 10 Taka', 'maximum of 1000', 'Transaction History', 'openTxHistory', 'How to add money?', 'openHowToAddMoney', 'How to join a match?', 'How to withdraw?', 'openHowToWithdraw', 'Nagad number not added yet', 'Nagad number will be added later', 'depPickGateway', 'depPickMethod', 'depCheck', 'depStep2', 'match-head', 'match-date', 'fmtDateTime', 'tile-ic', 'reg-row', 'join-btn', 'tutorial-pill', 'ad-slots', 'em-slots', 'Total Slots', 'adSlotsDefault', 'SLOT_DEFAULTS', 'Email / Username / Phone', 'Email, username or phone number', 'already exists', 'already taken', 'Send Code', 'Resend Code', 'Enter Reset Code', 'forgot-password/request', 'forgot-password/verify', 'Password Reset Requests', 'reset-requests', 'cancelReset', 'doForgotSend', 'doForgotVerify', 'topupHTML', 'topupSoon', 'Top-up coming soon', 'FREE FIRE TOPUP BD SERVER', 'INDONESIA SERVER', 'UID TOPUP', 'Level Up Pass', 'Weekly Lite', 'Weekly & Monthly', 'topup-grid', 'topup-card', 'topup-banner', 'TOPUP_PACKS_BD', 'TOPUP_PACKS_ID', 'daily-spin', 'spin-wheel', 'Spin Now', 'Next Spin in', 'Use free pass', 'SPIN_SEGMENTS', 'openSpin', 'doSpin', 'passForMatch', 'spin-counters', 'spin-head', 'spin-hub', 'spin-countdown', 'You won a free', 'Better luck tomorrow', 'spinState', 'usedPass', 'Payment Requests', 'admin/transactions', 'reviewTx', 'payreq', 'Verify this TrxID', 'Fake TrxIDs must be rejected', 'I verified this transaction', 'toggleApproveBtn', 'payInfo.bkashNumber', 'payInfo.nagadNumber', 'payInfo.rocketNumber', 'App Settings', 'saveAppSettings', 'Players', 'toggleBan', 'togglePartner', 'Make Partner', 'Remove Partner', 'PARTNER', 'partner-badge', 'promote', 'demote', 'app-config', 'loadAppConfig', 'noticeRules', 'withdrawInfoText', 'Daily Spin is currently disabled', 'Daily Spin is off', 'togglePw', 'pw-wrap', 'pw-eye', 'err.status', "return 'network'", 'unauthorized', 'Make Moderator', 'Remove Moderator', 'MODERATOR', 'moderator-badge', 'Moderator Permissions', 'toggleModerator', 'saveModPerms', 'mod-permissions', 'make-moderator', 'remove-moderator', 'roleBadge', 'canDo', 'myPerms', 'isModerator']) {
       assert.ok(appJs.includes(s), 'app.js missing: ' + s);
     }
     // Download button is always rendered on the landing page now — it is
@@ -580,7 +672,7 @@ function req(method, p, body, token) {
     assert.ok(!appJs.includes('__s19Install && !window.__s19AppInstalled'), 'Download button must not be conditionally hidden');
     assert.ok(!appJs.includes('topup-order') && !appJs.includes('/api/topup'), 'topup is display-only: no order endpoint');
     const css = await (await fetch('http://127.0.0.1:3101/styles.css')).text();
-    for (const s of ['@keyframes pageIn', '@keyframes cardIn', 'splashPulse', 'splashSpin', '.spinner', '.chat-fab', '.banner-carousel', 'prefers-reduced-motion', '.shield-tile', '.shield-label', '.help-row', '.help-contact', '.page-head', '.squad-box', '.sub-card', '.avatar-ring', '.avatar-img', '.avatar-cam', '.profile-tiles', '.profile-tile', '.menu-list', '.menu-row', '.edit-pill', '.id-pill', '.wallet-hero', '.wallet-tiles', '.wallet-tile', '.wallet-actions', '.wallet-btn', '.wallet-btn-blue', '.wallet-btn-green', '.wallet-btn-purple', '.addmoney-hero', '.addmoney-ic', '.dep-note', '.gw-pills', '.gw-pill', '.amt-box', '.btn-proceed', '.match-head', '.match-date', '.tile-ic', '.reg-row', '.join-btn', '.tutorial-pill', '.topup-banner', '.topup-grid', '.topup-card', '.topup-tile', '.topup-head', '.topup-badge', '.topup-sec', '.spin-wheel', '.spin-label', '.spin-pointer', '.spin-hub', '.spin-counters', '.spin-head', '.spin-countdown', '.spin-btn', '.partner-badge', 'user-select:none', '-webkit-touch-callout:none', '-webkit-tap-highlight-color:transparent', '.payreq', '.payreq-amt', '.verify-row']) {
+    for (const s of ['@keyframes pageIn', '@keyframes cardIn', 'splashPulse', 'splashSpin', '.spinner', '.chat-fab', '.banner-carousel', 'prefers-reduced-motion', '.shield-tile', '.shield-label', '.help-row', '.help-contact', '.page-head', '.squad-box', '.sub-card', '.avatar-ring', '.avatar-img', '.avatar-cam', '.profile-tiles', '.profile-tile', '.menu-list', '.menu-row', '.edit-pill', '.id-pill', '.wallet-hero', '.wallet-tiles', '.wallet-tile', '.wallet-actions', '.wallet-btn', '.wallet-btn-blue', '.wallet-btn-green', '.wallet-btn-purple', '.addmoney-hero', '.addmoney-ic', '.dep-note', '.gw-pills', '.gw-pill', '.amt-box', '.btn-proceed', '.match-head', '.match-date', '.tile-ic', '.reg-row', '.join-btn', '.tutorial-pill', '.topup-banner', '.topup-grid', '.topup-card', '.topup-tile', '.topup-head', '.topup-badge', '.topup-sec', '.spin-wheel', '.spin-label', '.spin-pointer', '.spin-hub', '.spin-counters', '.spin-head', '.spin-countdown', '.spin-btn', '.partner-badge', '.moderator-badge', 'user-select:none', '-webkit-touch-callout:none', '-webkit-tap-highlight-color:transparent', '.payreq', '.payreq-amt', '.verify-row']) {
       assert.ok(css.includes(s), 'styles.css missing: ' + s);
     }
     assert.ok(/input,select,textarea\{[^}]*font-size:16px/.test(css), 'input font stays 16px (no auto-zoom on focus)');
@@ -605,7 +697,7 @@ function req(method, p, body, token) {
     const man = await fetch('http://127.0.0.1:3101/manifest.webmanifest');
     assert.strictEqual(man.status, 200, 'manifest serves');
     const sw = await (await fetch('http://127.0.0.1:3101/sw.js')).text();
-    assert.ok(sw.includes('s19-tournament-v19'), 'sw cache bumped to v19 so phones fetch the new shell');
+    assert.ok(sw.includes('s19-tournament-v20'), 'sw cache bumped to v20 so phones fetch the new shell');
     const idx = await (await fetch('http://127.0.0.1:3101/')).text();
     assert.ok(idx.includes('appinstalled'), 'index tracks install state (Download button stays visible)');
     const icon = await fetch('http://127.0.0.1:3101/icon-512.png');
