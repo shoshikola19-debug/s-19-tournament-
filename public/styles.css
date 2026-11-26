@@ -419,3 +419,9 @@ h3{font-size:14px;margin-bottom:6px}
 .rules-settings{grid-template-columns:1fr 1fr;margin-bottom:12px}
 .rules-settings .tile-wide{grid-column:1/-1}
 .rules-card .rulelist li{margin-bottom:8px;line-height:1.6}
+
+/* Share App QR code (Admin Panel → App Settings) */
+.qr-share { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); text-align: center; }
+.qr-share h3 { margin: 0 0 6px; }
+.qr-share .muted { margin: 0 0 4px; }
+.qr-img { width: 220px; height: 220px; margin: 10px auto; display: block; border-radius: 12px; background: #fff; padding: 8px; }
