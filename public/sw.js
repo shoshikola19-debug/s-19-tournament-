@@ -1,6 +1,6 @@
 // S_19 Tournament service worker — cache the app shell, never the API.
-const CACHE = 's19-tournament-v21';
-const SHELL = ['/', '/index.html', '/styles.css', '/app.js', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/logo.webp', '/banner-room-rules.jpg', '/banner-official.jpg', '/banner-telegram.jpg', '/banner-whatsapp.jpg'];
+const CACHE = 's19-tournament-v22';
+const SHELL = ['/', '/index.html', '/styles.css', '/app.js', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/logo.webp', '/banner-room-rules.jpg', '/banner-official.jpg', '/banner-telegram.jpg', '/banner-whatsapp.jpg', '/app-qr.png'];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).catch(() => {}));
   self.skipWaiting();
