@@ -298,6 +298,25 @@ function defaultSlots(category, subcategory) {
 function validSlots(n) { return Number.isInteger(n) && n >= 2 && n <= 100; }
 const BR_SPLIT = { 1: 90, 2: 70, 3: 40, 4: 30, 5: 20 }; // BR Solo/Duo prize split
 
+// ---- fixed ZVY prices — the moderator price lock (hard lock, not a toggle) ----
+// A moderator can NEVER change a price, even with every permission ON:
+// creating a match forces the fixed price for the category (whatever the
+// form sent is ignored), and editing a match ignores every price field.
+// Only the owner or a partner can set prices. Unknown category = refuse.
+const FIXED_PRICES = {
+  'br/Solo': { prizePool: 800, entryFee: 20, perKillPrize: 10, prize1: 90, prize2: 70, prize3: 40, prize4: 30, prize5: 20 },
+  'br/Duo': { prizePool: 800, entryFee: 20, perKillPrize: 10, prize1: 90, prize2: 70, prize3: 40, prize4: 30, prize5: 20 },
+  'br/Esports PRO': { prizePool: 560, entryFee: 15, perKillPrize: 0, prize1: 0, prize2: 0, prize3: 0, prize4: 0, prize5: 0 },
+  'cs/4v4': { prizePool: 320, entryFee: 50, perKillPrize: 0, prize1: 0, prize2: 0, prize3: 0, prize4: 0, prize5: 0 },
+  'cs/1v1': { prizePool: 110, entryFee: 70, perKillPrize: 0, prize1: 0, prize2: 0, prize3: 0, prize4: 0, prize5: 0 },
+  'cs/Headshot Only': { prizePool: 200, entryFee: 60, perKillPrize: 0, prize1: 0, prize2: 0, prize3: 0, prize4: 0, prize5: 0 },
+  'lw/1v1': { prizePool: 110, entryFee: 70, perKillPrize: 0, prize1: 0, prize2: 0, prize3: 0, prize4: 0, prize5: 0 },
+  'lw/2v2': { prizePool: 160, entryFee: 50, perKillPrize: 0, prize1: 0, prize2: 0, prize3: 0, prize4: 0, prize5: 0 },
+  'lw/Lose To Win': { prizePool: 100, entryFee: 60, perKillPrize: 0, prize1: 0, prize2: 0, prize3: 0, prize4: 0, prize5: 0 },
+  'lw/Headshot Only': { prizePool: 200, entryFee: 60, perKillPrize: 0, prize1: 0, prize2: 0, prize3: 0, prize4: 0, prize5: 0 },
+};
+function fixedPriceFor(category, subcategory) { return FIXED_PRICES[category + '/' + subcategory] || null; }
+
 // ---- seed from data/seed.json (exact artifact export) ----
 async function seed() {
   const count = await db.get('SELECT COUNT(*) AS n FROM tournaments');
@@ -663,6 +682,11 @@ app.get('/api/settings', adminAuth, async (req, res) => {
 app.put('/api/settings', permAuth('app_settings'), async (req, res) => {
   try {
     const b = req.body || {};
+    // Hard lock: a moderator can NEVER change the app name, even with the
+    // app_settings permission on. Only the owner or a partner can.
+    if (b.appName !== undefined && isModeratorProfile(req.profile)) {
+      return res.status(403).json({ ok: false, error: 'Only the owner or a partner can change the app name' });
+    }
     const updates = {};
     if (b.appName !== undefined) {
       const v = String(b.appName).trim();
@@ -873,14 +897,28 @@ app.post('/api/tournaments', permAuth('create_match'), async (req, res) => {
     if (!b.title || String(b.title).length > 160) {
       return res.status(400).json({ ok: false, error: 'Title: must be 160 characters or fewer' });
     }
+    // Price lock: a moderator create forces the fixed ZVY price for the
+    // category — whatever the form sent is ignored. Unknown category for a
+    // moderator = refuse; the owner must set that price first.
+    let price = {
+      entryFee: b.entryFee || 0, prizePool: b.prizePool || 0,
+      prize1: Number(b.prize1) || 0, prize2: Number(b.prize2) || 0, prize3: Number(b.prize3) || 0,
+      prize4: Number(b.prize4) || 0, prize5: Number(b.prize5) || 0,
+      perKillPrize: b.perKillPrize || 0,
+    };
+    if (isModeratorProfile(req.profile)) {
+      const fixed = fixedPriceFor(b.category, b.subcategory);
+      if (!fixed) return res.status(400).json({ ok: false, error: 'Unknown category — ask the owner to set the price for this room' });
+      price = fixed;
+    }
     const id = await db.insert(
       'INSERT INTO tournaments (title, category, subcategory, mode, match_type, map, pov, match_date, match_time, total_slots, entry_fee, prize_pool, prize1, prize2, prize3, prize4, prize5, per_kill_prize, per_kill_points, room_id, room_password, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       [b.title, b.category, b.subcategory, b.mode || 'solo', b.matchType || 'battle_royale',
        b.map || 'Bermuda', b.pov || 'TPP', b.matchDate, b.matchTime, slots,
-       b.entryFee || 0, b.prizePool || 0,
-       Number(b.prize1) || 0, Number(b.prize2) || 0, Number(b.prize3) || 0,
-       Number(b.prize4) || 0, Number(b.prize5) || 0,
-       b.perKillPrize || 0, b.perKillPoints || 0,
+       price.entryFee, price.prizePool,
+       price.prize1, price.prize2, price.prize3,
+       price.prize4, price.prize5,
+       price.perKillPrize, b.perKillPoints || 0,
        b.roomId || '', b.roomPassword || '', 'upcoming']);
     res.json({ ok: true, id });
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
@@ -901,15 +939,26 @@ app.put('/api/tournaments/:id', permAuth('edit_match'), async (req, res) => {
       const bookedN = booked ? booked.n : 0;
       if (slots < bookedN) return res.status(400).json({ ok: false, error: `Cannot reduce slots below ${bookedN} booked slot(s)` });
     }
+    // Price lock: a moderator edit can never change prices — the stored
+    // price fields are kept, whatever the form sent. Date/time, room
+    // ID/password and slots can still change (with edit_match on).
+    const priceFields = isModeratorProfile(req.profile)
+      ? { entryFee: t.entry_fee, prizePool: t.prize_pool,
+          prize1: t.prize1, prize2: t.prize2, prize3: t.prize3, prize4: t.prize4, prize5: t.prize5,
+          perKillPrize: t.per_kill_prize }
+      : { entryFee: b.entryFee ?? t.entry_fee, prizePool: b.prizePool ?? t.prize_pool,
+          prize1: b.prize1 ?? t.prize1, prize2: b.prize2 ?? t.prize2, prize3: b.prize3 ?? t.prize3,
+          prize4: b.prize4 ?? t.prize4, prize5: b.prize5 ?? t.prize5,
+          perKillPrize: b.perKillPrize ?? t.per_kill_prize };
     await db.run(
       'UPDATE tournaments SET title=?, category=?, subcategory=?, mode=?, match_type=?, map=?, pov=?, match_date=?, match_time=?, total_slots=?, entry_fee=?, prize_pool=?, prize1=?, prize2=?, prize3=?, prize4=?, prize5=?, per_kill_prize=?, per_kill_points=?, room_id=?, room_password=? WHERE id=?',
       [b.title ?? t.title, b.category ?? t.category, b.subcategory ?? t.subcategory,
        b.mode ?? t.mode, b.matchType ?? t.match_type, b.map ?? t.map, b.pov ?? t.pov,
        b.matchDate ?? t.match_date, b.matchTime ?? t.match_time, slots,
-       b.entryFee ?? t.entry_fee, b.prizePool ?? t.prize_pool,
-       b.prize1 ?? t.prize1, b.prize2 ?? t.prize2, b.prize3 ?? t.prize3,
-       b.prize4 ?? t.prize4, b.prize5 ?? t.prize5,
-       b.perKillPrize ?? t.per_kill_prize, b.perKillPoints ?? t.per_kill_points,
+       priceFields.entryFee, priceFields.prizePool,
+       priceFields.prize1, priceFields.prize2, priceFields.prize3,
+       priceFields.prize4, priceFields.prize5,
+       priceFields.perKillPrize, b.perKillPoints ?? t.per_kill_points,
        b.roomId ?? t.room_id, b.roomPassword ?? t.room_password, t.id]);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
@@ -1333,7 +1382,10 @@ app.get('/api/payment-info', async (req, res) => {
   }
   res.json({ ok: true, ...info });
 });
-app.put('/api/payment-info', permAuth('app_settings'), async (req, res) => {
+// Payment numbers are a hard lock for moderators: only the owner or a
+// partner may change bKash/Nagad/Rocket numbers, even with the
+// app_settings permission on — so this endpoint never lets a moderator in.
+app.put('/api/payment-info', fullAdminAuth, async (req, res) => {
   const b = req.body || {};
   for (const [k, v] of Object.entries({ bkash: b.bkashNumber, nagad: b.nagadNumber, rocket: b.rocketNumber, groupLink: b.groupLink })) {
     // Empty / missing field = leave the saved number alone, never wipe it.
