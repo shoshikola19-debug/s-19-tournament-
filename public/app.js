@@ -231,6 +231,20 @@ function saveToken(tk, remember) {
 }
 function clearToken() { token = ''; localStorage.removeItem('s19token'); sessionStorage.removeItem('s19token'); }
 let profile = null, wallet = null, tournaments = [], adminTournaments = [];
+// Effective moderator permissions for the logged-in user (from /api/me):
+// owner/partner = everything true; moderator = the owner's toggles.
+let myPerms = {};
+function canDo(perm) { return !!(myPerms && myPerms[perm]); }
+// Role badge: gold ADMIN for the owner, blue PARTNER for partners,
+// green MODERATOR for moderators.
+function roleBadge() {
+  if (!profile) return '';
+  if (profile.isAdmin) return profile.isOwner ? '<span class="admin-badge">ADMIN</span>' : '<span class="partner-badge">PARTNER</span>';
+  if (profile.isModerator) return '<span class="moderator-badge">MODERATOR</span>';
+  return '';
+}
+// Moderator permission toggles (same keys/labels as the server MOD_PERMS).
+const MOD_PERM_LIST = [['create_match', 'Create Match'], ['edit_match', 'Edit Match'], ['delete_match', 'Delete Match'], ['pause_match', 'Pause / Resume Match'], ['review_bookings', 'Approve / Reject Bookings'], ['review_payments', 'Approve / Reject Payment Requests'], ['publish_results', 'Publish Results'], ['ban_players', 'Ban / Unban Players'], ['manage_roles', 'Make / Remove Partners & Moderators'], ['app_settings', 'Change App Settings']];
 // App display config from the server (admin-editable in App Settings).
 let appConfig = null;
 async function loadAppConfig() {
@@ -1191,9 +1205,9 @@ window.acceptNotice = (stay) => {
   if (!stay) { view = 'play'; render(); }
 };
 async function loadMe() {
-  try { const d = await api('/api/me'); profile = d.profile; wallet = d.wallet; return 'ok'; }
+  try { const d = await api('/api/me'); profile = d.profile; wallet = d.wallet; myPerms = d.permissions || {}; return 'ok'; }
   catch (e) {
-    profile = null;
+    profile = null; myPerms = {};
     // Only a real 401 (session dead) clears the saved login. A network
     // failure — e.g. the free server still waking up — must NOT log the
     // user out, or the app keeps asking for the password again and again.
@@ -1212,7 +1226,7 @@ const LW1V1_RULES = ['সন্দেহজনক User কে কোনো ন�
 function topbarHTML() {
   const upcomingMine = tournaments.filter((m) => (m.status === 'upcoming' || m.status === 'live' || m.status === 'paused') && m.bookings.some((b) => profile && b.profile_id === profile.id && (b.status === 'pending' || b.status === 'approved'))).length;
   return `<div class="topbar"><img class="logo-sm" src="/logo.webp" onerror="this.src='/icon-192.png'">
-  <div><b>${appNameHTML()}</b><div class="muted" style="font-size:10px">WELCOME BACK, ${esc(profile ? profile.username.toUpperCase() : 'PLAYER')} ${profile && profile.isAdmin ? (profile.isOwner ? '<span class="admin-badge">ADMIN</span>' : '<span class="partner-badge">PARTNER</span>') : ''}</div></div>
+  <div><b>${appNameHTML()}</b><div class="muted" style="font-size:10px">WELCOME BACK, ${esc(profile ? profile.username.toUpperCase() : 'PLAYER')} ${roleBadge()}</div></div>
   <div class="sp"></div>
   ${profile ? `<span class="id-chip">S_19 ID #${profile.accountId}</span>` : ''}
   <button class="bell-btn" onclick="view='mymatches';render()" aria-label="Notifications">🔔${upcomingMine ? `<span class="bell-count">${upcomingMine}</span>` : ''}</button>
@@ -1230,7 +1244,8 @@ const NAV_ICONS = {
 function bottomnavHTML() {
   const items = [['topup', 'gem', 'Diamond Topup'], ['results', 'chart', 'Results'], ['play', 'gamepad', 'Play'], ['mymatches', 'trophy', 'My Matches'], ['profile', 'user', 'Profile']];
   // Admin gets a separate Admin tab next to Profile; regular players never see it.
-  if (profile && profile.isAdmin) items.push(['admin', 'gear', 'Admin']);
+  // Moderators see it too — the Admin Panel hides every section they lack permission for.
+  if (profile && (profile.isAdmin || profile.isModerator)) items.push(['admin', 'gear', 'Admin']);
   return `<div class="bottomnav${items.length > 5 ? ' six' : ''}">${items.map(([v, ic, lb]) => `<button class="${view === v ? 'on' : ''}" onclick="view='${v}';render()"><span class="ic">${NAV_ICONS[ic]}</span>${lb}</button>`).join('')}</div><button class="chat-fab" onclick="openSupport()" aria-label="Customer Support">💬</button>`;
 }
 function matchCard(m) {
@@ -1854,7 +1869,7 @@ function profileHTML() {
       <button class="avatar-cam" onclick="document.getElementById('avatar-input').click()" aria-label="Change photo">📷</button>
       <input type="file" id="avatar-input" accept="image/*" style="display:none" onchange="uploadAvatar(this)">
     </div>
-    <h2 class="profile-name">${esc(profile ? profile.username : '')} ${profile && profile.isAdmin ? (profile.isOwner ? '<span class="admin-badge">ADMIN</span>' : '<span class="partner-badge">PARTNER</span>') : ''}</h2>
+    <h2 class="profile-name">${esc(profile ? profile.username : '')} ${roleBadge()}</h2>
     <div class="profile-chips">
       <button class="id-pill" onclick="copyS19Id()">S_19 ID #${profile ? profile.accountId : ''} <span class="copy-ic">📋</span></button>
       <button class="edit-pill" onclick="editProfile()">✏️ Edit Profile</button>
@@ -1874,7 +1889,7 @@ function profileHTML() {
     ${menuRow('📊', 'Leaderboard', 'Top players & your rank', "view='results';render()")}
     ${menuRow('✈️', 'Telegram Channel', 'Match updates & announcements', 'openTelegram()')}
     ${menuRow('💬', 'WhatsApp Channel', 'Match updates & announcements', 'openWhatsApp()')}
-    ${profile && profile.isAdmin ? menuRow('⚙️', 'Admin Panel', 'Create rooms, approve payments & results', "view='admin';render()") : ''}
+    ${profile && (profile.isAdmin || profile.isModerator) ? menuRow('⚙️', 'Admin Panel', 'Create rooms, approve payments & results', "view='admin';render()") : ''}
     ${menuRow('👨‍💻', 'Developer Profile', 'About S_19', 'devProfile()')}
     ${menuRow('🔄', 'Switch Account', 'Login with another account', 'switchAccount()')}
     ${menuRow('🚪', 'Logout', 'Sign out of this device', 'logout()')}
@@ -2017,10 +2032,13 @@ async function adminHTML() {
   try { appSettings = (await api('/api/settings')).settings || null; } catch (e) {}
   let players = [];
   try { players = (await api('/api/admin/players')).players || []; } catch (e) {}
+  // Moderator permission toggles (owner-only section; read by any admin).
+  let modPermsAdmin = null;
+  try { modPermsAdmin = (await api('/api/mod-permissions')).permissions || null; } catch (e) {}
   let payInfo = { bkashNumber: '', nagadNumber: '', rocketNumber: '' };
   try { payInfo = await api('/api/payment-info'); } catch (e) {}
   return `${topbarHTML()}<div class="wrap"><h2 style="margin-top:14px">Admin Panel</h2>
-  <div class="card"><h3>Create custom room</h3>
+  ${canDo('create_match') ? `<div class="card"><h3>Create custom room</h3>
     <div class="field"><label>Room name</label><input id="ad-title" maxlength="160" placeholder="e.g. BR Solo — Evening"></div>
     <div class="field"><label>Lobby</label><select id="ad-cat" onchange="adSub()"><option value="br">BR</option><option value="cs">CS</option><option value="lw">LW</option></select></div>
     <div class="field"><label>Subcategory</label><select id="ad-sub" onchange="adSlotsDefault()"></select></div>
@@ -2039,8 +2057,8 @@ async function adminHTML() {
     <div class="field"><label>Room ID</label><input id="ad-roomid" placeholder="optional"></div>
     <div class="field"><label>Room password</label><input id="ad-roompw" placeholder="optional"></div>
     <div id="ad-err"></div>
-    <button class="btn" style="margin-top:12px" onclick="createMatch()">Create Room</button></div>
-  <div class="card"><h3>💰 Payment Requests (${pendTx.length})</h3>
+    <button class="btn" style="margin-top:12px" onclick="createMatch()">Create Room</button></div>` : ''}
+  ${canDo('review_payments') ? `<div class="card"><h3>💰 Payment Requests (${pendTx.length})</h3>
   <div class="warn" style="border-color:#7a1f1f;background:#2a0d0d;color:#ff9a9a">⚠ Verify this TrxID in your bKash/Nagad/Rocket app first — check the amount and sender number match before approving. Fake TrxIDs must be rejected.</div>
   ${pendTx.length ? pendTx.map((t) => `<div class="payreq">
     <div class="payreq-amt">৳${Math.abs(t.amount)} <span>${t.type === 'withdraw' ? 'Withdraw' : 'Deposit'} · ${esc(t.method || '—')}</span></div>
@@ -2057,8 +2075,8 @@ async function adminHTML() {
     </div>
   </div>`).join('')
     : '<p class="muted">No pending payment requests.</p>'}
-  <p class="muted">Approve adds the money to the player's Deposit Balance; Reject adds nothing.</p></div>
-  <div class="card"><h3>⚙️ App Settings</h3>
+  <p class="muted">Approve adds the money to the player's Deposit Balance; Reject adds nothing.</p></div>` : ''}
+  ${canDo('app_settings') ? `<div class="card"><h3>⚙️ App Settings</h3>
     <div class="field"><label>App name</label><input id="as-name" maxlength="60" value="${esc((appSettings && appSettings.appName) || 'S_19 TOURNAMENT')}"></div>
     <div class="field"><label>Welcome Notice rules (one rule per line)</label><textarea id="as-notice" rows="6">${esc((appSettings && appSettings.noticeRules) || '')}</textarea></div>
     <div class="field"><label>Home banner title</label><input id="as-bannertitle" maxlength="120" value="${esc((appSettings && appSettings.bannerTitle) || '')}"></div>
@@ -2068,41 +2086,62 @@ async function adminHTML() {
     <div class="field"><label>Withdrawal window — to</label><input id="as-wdend" type="time" value="${fmtClockInput((appSettings && appSettings.withdrawEnd) ?? 1290)}"></div>
     <div class="field"><label><input id="as-spin" type="checkbox" style="width:auto" ${appSettings && appSettings.spinEnabled === false ? '' : 'checked'}> Daily Spin enabled</label></div>
     <div id="as-err"></div>
-    <button class="btn" style="margin-top:12px" onclick="saveAppSettings()">Save App Settings</button></div>
-  <div class="card"><h3>👥 Players (${players.length})</h3>
-  ${players.length ? players.map((p) => `<div class="kv"><span>${esc(p.username)} · S_19 ID #${p.accountId}${p.isAdmin && !p.isOwner ? ' · <b class="partner-badge">PARTNER</b>' : ''}${p.banned ? ' · <b style="color:#ff5b63">BANNED</b>' : ''} · ${esc(p.phone || '—')} · Deposit ৳${p.depositBalance} · Winning ৳${p.winningBalance}</span><span style="display:flex;gap:6px;flex-wrap:wrap">${p.isOwner ? '<span class="muted">Owner</span>' : `${p.isAdmin ? `<button class="btn-ghost btn-sm" onclick="togglePartner(${p.id},'${esc(p.username)}',false)">Remove Partner</button>` : `<button class="btn-ghost btn-sm" onclick="togglePartner(${p.id},'${esc(p.username)}',true)">Make Partner</button>`}<button class="btn-ghost btn-sm" onclick="toggleBan(${p.id},${p.banned ? 'false' : 'true'})">${p.banned ? 'Unban' : 'Ban'}</button>`}</span></div>`).join('')
+    <button class="btn" style="margin-top:12px" onclick="saveAppSettings()">Save App Settings</button></div>` : ''}
+  ${(canDo('ban_players') || canDo('manage_roles')) ? `<div class="card"><h3>👥 Players (${players.length})</h3>
+  ${players.length ? players.map((p) => {
+    const badge = p.isAdmin ? (p.isOwner ? '' : ' · <b class="partner-badge">PARTNER</b>') : (p.isModerator ? ' · <b class="moderator-badge">MODERATOR</b>' : '');
+    let btns = '';
+    if (p.isOwner) btns = '<span class="muted">Owner</span>';
+    else {
+      if (canDo('manage_roles')) {
+        btns += p.isAdmin
+          ? `<button class="btn-ghost btn-sm" onclick="togglePartner(${p.id},'${esc(p.username)}',false)">Remove Partner</button>`
+          : `<button class="btn-ghost btn-sm" onclick="togglePartner(${p.id},'${esc(p.username)}',true)">Make Partner</button>`;
+        btns += p.isModerator
+          ? `<button class="btn-ghost btn-sm" onclick="toggleModerator(${p.id},'${esc(p.username)}',false)">Remove Moderator</button>`
+          : `<button class="btn-ghost btn-sm" onclick="toggleModerator(${p.id},'${esc(p.username)}',true)">Make Moderator</button>`;
+      }
+      if (canDo('ban_players')) btns += `<button class="btn-ghost btn-sm" onclick="toggleBan(${p.id},${p.banned ? 'false' : 'true'})">${p.banned ? 'Unban' : 'Ban'}</button>`;
+    }
+    return `<div class="kv"><span>${esc(p.username)} · S_19 ID #${p.accountId}${badge}${p.banned ? ' · <b style="color:#ff5b63">BANNED</b>' : ''} · ${esc(p.phone || '—')} · Deposit ৳${p.depositBalance} · Winning ৳${p.winningBalance}</span><span style="display:flex;gap:6px;flex-wrap:wrap">${btns}</span></div>`;
+  }).join('')
     : '<p class="muted">No players yet.</p>'}
-  <p class="muted">A banned player cannot login or join matches. Partners get the full Admin Panel, like the owner — the owner can never be removed as partner or banned.</p></div>
+  <p class="muted">A banned player cannot login or join matches. Partners get the full Admin Panel, like the owner — the owner can never be removed as partner or banned. Moderators can only do what the owner turns on in Moderator Permissions below.</p></div>` : ''}
+  ${profile.isOwner ? `<div class="card"><h3>🛡️ Moderator Permissions</h3>
+  <p class="muted">Only you (the owner) can change these. Every moderator gets the same permissions — all are OFF until you turn them on. Partners always have every permission.</p>
+  ${MOD_PERM_LIST.map(([k, label]) => `<div class="field"><label><input type="checkbox" style="width:auto" id="mp-${k}" ${modPermsAdmin && modPermsAdmin[k] ? 'checked' : ''}> ${label}</label></div>`).join('')}
+  <div id="mp-err"></div>
+  <button class="btn" style="margin-top:12px" onclick="saveModPerms()">Save Moderator Permissions</button></div>` : ''}
   <h3 style="margin-top:20px">Matches (${adminTournaments.length})</h3>
   ${adminTournaments.map((m) => `<div class="card"><b>${esc(m.title)}</b> <span class="badge">#${m.id}</span>
     <div class="muted">${esc(m.matchDate)} ${esc(m.matchTime)} · ${m.status === 'paused' ? '⏸ Paused' : esc(m.status)} · ${m.bookings.filter((b) => b.status === 'pending' || b.status === 'approved').length}/${m.totalSlots} booked · Room: ${m.roomId || '—'}</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
-      <button class="btn-ghost btn-sm" onclick="setStatus(${m.id},'live')">Start live</button>
+      ${canDo('edit_match') ? `<button class="btn-ghost btn-sm" onclick="setStatus(${m.id},'live')">Start live</button>
       <button class="btn-ghost btn-sm" onclick="setStatus(${m.id},'closed')">Close entries</button>
-      <button class="btn-ghost btn-sm" onclick="setStatus(${m.id},'upcoming')">Reopen</button>
-      ${m.status === 'paused' ? `<button class="btn-ghost btn-sm" onclick="resumeMatch(${m.id})">▶ Resume</button>` : ((m.status === 'upcoming' || m.status === 'live') ? `<button class="btn-ghost btn-sm" onclick="pauseMatch(${m.id})">⏸ Pause</button>` : '')}
-      <button class="btn-ghost btn-sm" onclick="setStatus(${m.id},'finished')">Mark finished</button>
-      <button class="btn-ghost btn-sm" onclick="cancelMatch(${m.id})">Cancel</button>
-      <button class="btn-ghost btn-sm" onclick="editMatch(${m.id})">Edit</button>
-      <button class="btn-ghost btn-sm" onclick="deleteMatch(${m.id})">Delete</button>
+      <button class="btn-ghost btn-sm" onclick="setStatus(${m.id},'upcoming')">Reopen</button>` : ''}
+      ${canDo('pause_match') ? (m.status === 'paused' ? `<button class="btn-ghost btn-sm" onclick="resumeMatch(${m.id})">▶ Resume</button>` : ((m.status === 'upcoming' || m.status === 'live') ? `<button class="btn-ghost btn-sm" onclick="pauseMatch(${m.id})">⏸ Pause</button>` : '')) : ''}
+      ${canDo('edit_match') ? `<button class="btn-ghost btn-sm" onclick="setStatus(${m.id},'finished')">Mark finished</button>` : ''}
+      ${canDo('delete_match') ? `<button class="btn-ghost btn-sm" onclick="cancelMatch(${m.id})">Cancel</button>` : ''}
+      ${canDo('edit_match') ? `<button class="btn-ghost btn-sm" onclick="editMatch(${m.id})">Edit</button>` : ''}
+      ${canDo('delete_match') ? `<button class="btn-ghost btn-sm" onclick="deleteMatch(${m.id})">Delete</button>` : ''}
     </div>
-    ${m.bookings.filter((b) => b.status === 'pending').map((b) => { const sq = squadList(b); return `<div class="kv"><span>Slot ${b.slot_number} · ${esc(b.player_name)} (pending)${sq.length ? ' · 👥 ' + esc(sq.join(', ')) : ''}</span><span><button class="btn-ghost btn-sm" onclick="reviewBooking(${b.id},true)">Approve</button> <button class="btn-ghost btn-sm" onclick="reviewBooking(${b.id},false)">Reject</button></span></div>`; }).join('')}
+    ${m.bookings.filter((b) => b.status === 'pending').map((b) => { const sq = squadList(b); return `<div class="kv"><span>Slot ${b.slot_number} · ${esc(b.player_name)} (pending)${sq.length ? ' · 👥 ' + esc(sq.join(', ')) : ''}</span>${canDo('review_bookings') ? `<span><button class="btn-ghost btn-sm" onclick="reviewBooking(${b.id},true)">Approve</button> <button class="btn-ghost btn-sm" onclick="reviewBooking(${b.id},false)">Reject</button></span>` : ''}</div>`; }).join('')}
   </div>`).join('')}
-  <div class="card"><h3>Publish result</h3>
+  ${canDo('publish_results') ? `<div class="card"><h3>Publish result</h3>
     <div class="field"><label>Match</label><select id="rs-match">${adminTournaments.map((m) => `<option value="${m.id}">${esc(m.title)} — ${esc(m.matchDate)}</option>`).join('')}</select></div>
     <div class="field"><label>Player name</label><input id="rs-player" placeholder="in-game name"></div>
     <div class="field"><label>Placement (1-5)</label><input id="rs-place" type="number" value="1"></div>
     <div class="field"><label>Kills</label><input id="rs-kills" type="number" value="0"></div>
-    <button class="btn" style="margin-top:12px" onclick="publishResult()">Publish Result</button></div>
-  <div class="card"><h3>🔑 Password Reset Requests</h3>
+    <button class="btn" style="margin-top:12px" onclick="publishResult()">Publish Result</button></div>` : ''}
+  ${profile.isAdmin ? `<div class="card"><h3>🔑 Password Reset Requests</h3>
   ${resets.length ? resets.map((r) => `<div class="kv"><span>${esc(r.contact)} · ${esc(r.channel)} · ${r.attemptsLeft} tries left · expires ${new Date(r.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${r.code ? ` · <b>Code: ${esc(r.code)}</b>` : ' · code emailed'}</span><button class="btn-ghost btn-sm" onclick="cancelReset(${r.id})">Cancel</button></div>`).join('')
     : '<p class="muted">No pending reset requests.</p>'}
-  <p class="muted">Codes are emailed when SMTP is set up; otherwise the code shows here only for the admin, so Support can share it with the player.</p></div>
-  <div class="card"><h3>Payment settings</h3>
+  <p class="muted">Codes are emailed when SMTP is set up; otherwise the code shows here only for the admin, so Support can share it with the player.</p></div>` : ''}
+  ${canDo('app_settings') ? `<div class="card"><h3>Payment settings</h3>
     <div class="field"><label>bKash number</label><input id="pay-bkash" placeholder="01XXXXXXXXX" value="${esc(payInfo.bkashNumber || '')}"></div>
     <div class="field"><label>Nagad number</label><input id="pay-nagad" placeholder="01XXXXXXXXX" value="${esc(payInfo.nagadNumber || '')}"></div>
     <div class="field"><label>Rocket number</label><input id="pay-rocket" placeholder="01XXXXXXXXX" value="${esc(payInfo.rocketNumber || '')}"></div>
-    <button class="btn" style="margin-top:12px" onclick="savePayment()">Save Payment Numbers</button></div>
+    <button class="btn" style="margin-top:12px" onclick="savePayment()">Save Payment Numbers</button></div>` : ''}
   </div>${bottomnavHTML()}`;
 }
 window.cancelReset = async (id) => {
@@ -2110,7 +2149,11 @@ window.cancelReset = async (id) => {
   catch (e) { toast(e.message); }
 };
 window.adSub = () => {
-  const c = $('#ad-cat').value;
+  // The Create Room card is hidden for moderators without the
+  // create_match permission — then there is nothing to fill in.
+  const catEl = $('#ad-cat');
+  if (!catEl) return;
+  const c = catEl.value;
   $('#ad-sub').innerHTML = SUBS[c].map((s) => `<option>${s}</option>`).join('');
   // BR gets the standard 90/70/40/30/20 rank split by default; CS/LW start blank.
   const defs = c === 'br' ? [90, 70, 40, 30, 20] : ['', '', '', '', ''];
@@ -2192,6 +2235,21 @@ window.togglePartner = async (id, username, make) => {
     await api(`/api/admin/players/${id}/${make ? 'promote' : 'demote'}`, { method: 'POST' });
     render(); toast(make ? `${username} is now a partner` : `${username} is no longer a partner`);
   } catch (e) { toast(e.message); }
+};
+window.toggleModerator = async (id, username, make) => {
+  try {
+    if (!confirm(make ? `Make ${username} a moderator? They can only do what you turn on in Moderator Permissions.` : `Remove ${username} as moderator? They will lose all moderator access.`)) return;
+    await api(`/api/admin/players/${id}/${make ? 'make-moderator' : 'remove-moderator'}`, { method: 'POST' });
+    render(); toast(make ? `${username} is now a moderator` : `${username} is no longer a moderator`);
+  } catch (e) { toast(e.message); }
+};
+window.saveModPerms = async () => {
+  try {
+    const body = {};
+    for (const [k] of MOD_PERM_LIST) { const el = $('#mp-' + k); if (el) body[k] = el.checked; }
+    await api('/api/mod-permissions', { method: 'PUT', body: JSON.stringify(body) });
+    await loadMe(); render(); toast('Moderator permissions saved');
+  } catch (e) { const el = $('#mp-err'); if (el) el.innerHTML = `<div class="err">${esc(e.message)}</div>`; else toast(e.message); }
 };
 window.editMatch = (id) => {
   const m = adminTournaments.find((x) => x.id === id);
