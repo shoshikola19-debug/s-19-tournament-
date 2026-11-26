@@ -164,10 +164,87 @@ async function auth(req, res, next) {
 // Admin = the owner (by email) or a promoted partner (is_admin flag).
 // The owner can never lose admin status; partners can be removed.
 function isAdminProfile(p) { return !!p && (p.email === OWNER_EMAIL || !!p.is_admin); }
+// Anyone who may open the Admin Panel: owner, partner, or moderator.
+function isOwnerProfile(p) { return !!p && p.email === OWNER_EMAIL; }
+function isPartnerProfile(p) { return !!p && !!p.is_admin && p.email !== OWNER_EMAIL; }
+function isModeratorProfile(p) { return !!p && !!p.is_moderator; }
+function canAccessAdmin(p) { return !!p && (isOwnerProfile(p) || isPartnerProfile(p) || isModeratorProfile(p)); }
 async function adminAuth(req, res, next) {
+  await auth(req, res, async () => {
+    if (!canAccessAdmin(req.profile)) {
+      return res.status(403).json({ ok: false, error: 'Admin access required' });
+    }
+    next();
+  });
+}
+// Full admin only (owner or partner) — moderators are never allowed here
+// (e.g. password reset codes must stay out of moderator hands).
+async function fullAdminAuth(req, res, next) {
   await auth(req, res, async () => {
     if (!isAdminProfile(req.profile)) {
       return res.status(403).json({ ok: false, error: 'Admin access required' });
+    }
+    next();
+  });
+}
+
+// ---- moderator role + group-level permissions ----
+// Moderators are players the owner (or a partner) promotes. What a
+// moderator may do is ONE group-level toggle set, stored in the settings
+// table (key mod_perm_<name>, '1'/'0') — every moderator shares it.
+// The owner and partners have every permission, always. A moderator gets
+// a permission only when its toggle is ON. All toggles default OFF.
+// Only the owner can change the toggles; partners cannot.
+const MOD_PERMS = [
+  { key: 'create_match', label: 'Create Match' },
+  { key: 'edit_match', label: 'Edit Match' },
+  { key: 'delete_match', label: 'Delete Match' },
+  { key: 'pause_match', label: 'Pause / Resume Match' },
+  { key: 'review_bookings', label: 'Approve / Reject Bookings' },
+  { key: 'review_payments', label: 'Approve / Reject Payment Requests' },
+  { key: 'publish_results', label: 'Publish Results' },
+  { key: 'ban_players', label: 'Ban / Unban Players' },
+  { key: 'manage_roles', label: 'Make / Remove Partners & Moderators' },
+  { key: 'app_settings', label: 'Change App Settings' },
+];
+const MOD_PERM_KEYS = MOD_PERMS.map((p) => p.key);
+function modPermDefaults() { return Object.fromEntries(MOD_PERM_KEYS.map((k) => [k, false])); }
+async function getModPerms() {
+  const rows = await db.all("SELECT key, value FROM settings WHERE key LIKE 'mod_perm_%'");
+  const perms = modPermDefaults();
+  for (const r of rows) {
+    const k = String(r.key).slice('mod_perm_'.length);
+    if (k in perms) perms[k] = r.value === '1';
+  }
+  return perms;
+}
+// Effective permissions for one profile: owner/partner = everything;
+// moderator = the stored toggles; everyone else = nothing.
+async function effectivePerms(p) {
+  if (!p) return modPermDefaults();
+  if (isOwnerProfile(p) || isPartnerProfile(p)) return Object.fromEntries(MOD_PERM_KEYS.map((k) => [k, true]));
+  if (isModeratorProfile(p)) return await getModPerms();
+  return modPermDefaults();
+}
+// One named moderator permission: owner/partner always pass; a moderator
+// passes only when that toggle is ON; everyone else gets 403.
+function permAuth(perm) {
+  return async (req, res, next) => {
+    await auth(req, res, async () => {
+      if (isAdminProfile(req.profile)) return next();
+      if (isModeratorProfile(req.profile)) {
+        const perms = await getModPerms();
+        if (perms[perm]) return next();
+      }
+      return res.status(403).json({ ok: false, error: 'You do not have permission for this' });
+    });
+  };
+}
+// Only the owner may change moderator permissions — partners cannot.
+async function ownerAuth(req, res, next) {
+  await auth(req, res, async () => {
+    if (!isOwnerProfile(req.profile)) {
+      return res.status(403).json({ ok: false, error: 'Only the owner can do this' });
     }
     next();
   });
@@ -527,7 +604,7 @@ app.post('/api/forgot-password/verify', async (req, res) => {
 
 // Admin-only: pending reset requests (code shown only when email is not
 // configured, so Support can relay it to the player).
-app.get('/api/admin/reset-requests', adminAuth, async (req, res) => {
+app.get('/api/admin/reset-requests', fullAdminAuth, async (req, res) => {
   try {
     await db.run('DELETE FROM password_resets WHERE expires_at <= ?', [Date.now()]);
     const rows = await db.all('SELECT * FROM password_resets ORDER BY created_at DESC');
@@ -541,7 +618,7 @@ app.get('/api/admin/reset-requests', adminAuth, async (req, res) => {
     });
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
-app.delete('/api/admin/reset-requests/:id', adminAuth, async (req, res) => {
+app.delete('/api/admin/reset-requests/:id', fullAdminAuth, async (req, res) => {
   try {
     await db.run('DELETE FROM password_resets WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
@@ -583,7 +660,7 @@ app.get('/api/settings', adminAuth, async (req, res) => {
   try { res.json({ ok: true, settings: await getAppSettings() }); }
   catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
-app.put('/api/settings', adminAuth, async (req, res) => {
+app.put('/api/settings', permAuth('app_settings'), async (req, res) => {
   try {
     const b = req.body || {};
     const updates = {};
@@ -641,17 +718,25 @@ app.get('/api/admin/players', adminAuth, async (req, res) => {
         id: p.id, username: p.username, accountId: p.account_id,
         phone: p.phone || '', email: p.email || '',
         banned: !!p.banned, isAdmin: isAdminProfile(p), isOwner: p.email === OWNER_EMAIL,
+        isModerator: isModeratorProfile(p),
         depositBalance: w.depositBalance, winningBalance: w.winningBalance,
       });
     }
     res.json({ ok: true, players });
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
-app.post('/api/admin/players/:id/ban', adminAuth, async (req, res) => {
+app.post('/api/admin/players/:id/ban', permAuth('ban_players'), async (req, res) => {
   try {
     const p = await db.get('SELECT * FROM profiles WHERE id = ?', [req.params.id]);
     if (!p) return res.status(404).json({ ok: false, error: 'Player not found' });
     if (p.email === OWNER_EMAIL) return res.status(400).json({ ok: false, error: 'Cannot ban the owner' });
+    // A moderator may only ban plain players / moderators — never a
+    // partner, and never themselves. Owner and partners have no such limit
+    // (except the owner, blocked above).
+    if (!isAdminProfile(req.profile)) {
+      if (p.id === req.profileId) return res.status(403).json({ ok: false, error: 'You cannot ban yourself' });
+      if (p.is_admin) return res.status(403).json({ ok: false, error: 'Only the owner can ban a partner' });
+    }
     const banned = !!(req.body || {}).banned;
     await db.run('UPDATE profiles SET banned = ? WHERE id = ?', [banned ? 1 : 0, p.id]);
     res.json({ ok: true, banned });
@@ -659,21 +744,64 @@ app.post('/api/admin/players/:id/ban', adminAuth, async (req, res) => {
 });
 // Partnership: promote a player to admin (partner) or remove them.
 // Only admins can do this; the owner can never be removed as partner.
-app.post('/api/admin/players/:id/promote', adminAuth, async (req, res) => {
+// A moderator with manage_roles may never promote/demote themselves —
+// promoting themselves to partner would be a free upgrade to full admin.
+app.post('/api/admin/players/:id/promote', permAuth('manage_roles'), async (req, res) => {
   try {
     const p = await db.get('SELECT * FROM profiles WHERE id = ?', [req.params.id]);
     if (!p) return res.status(404).json({ ok: false, error: 'Player not found' });
+    if (!isAdminProfile(req.profile) && p.id === req.profileId) return res.status(403).json({ ok: false, error: 'You cannot change your own role' });
     await db.run('UPDATE profiles SET is_admin = 1 WHERE id = ?', [p.id]);
     res.json({ ok: true, isAdmin: true });
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
-app.post('/api/admin/players/:id/demote', adminAuth, async (req, res) => {
+app.post('/api/admin/players/:id/demote', permAuth('manage_roles'), async (req, res) => {
   try {
     const p = await db.get('SELECT * FROM profiles WHERE id = ?', [req.params.id]);
     if (!p) return res.status(404).json({ ok: false, error: 'Player not found' });
     if (p.email === OWNER_EMAIL) return res.status(400).json({ ok: false, error: 'Cannot remove the owner' });
+    if (!isAdminProfile(req.profile) && p.id === req.profileId) return res.status(403).json({ ok: false, error: 'You cannot change your own role' });
     await db.run('UPDATE profiles SET is_admin = 0 WHERE id = ?', [p.id]);
     res.json({ ok: true, isAdmin: false });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+// Moderator role: make a player a moderator or remove them. The owner can
+// never be a moderator. Same self-change guard as promote/demote.
+app.post('/api/admin/players/:id/make-moderator', permAuth('manage_roles'), async (req, res) => {
+  try {
+    const p = await db.get('SELECT * FROM profiles WHERE id = ?', [req.params.id]);
+    if (!p) return res.status(404).json({ ok: false, error: 'Player not found' });
+    if (p.email === OWNER_EMAIL) return res.status(400).json({ ok: false, error: 'The owner cannot be a moderator' });
+    if (!isAdminProfile(req.profile) && p.id === req.profileId) return res.status(403).json({ ok: false, error: 'You cannot change your own role' });
+    await db.run('UPDATE profiles SET is_moderator = 1 WHERE id = ?', [p.id]);
+    res.json({ ok: true, isModerator: true });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+app.post('/api/admin/players/:id/remove-moderator', permAuth('manage_roles'), async (req, res) => {
+  try {
+    const p = await db.get('SELECT * FROM profiles WHERE id = ?', [req.params.id]);
+    if (!p) return res.status(404).json({ ok: false, error: 'Player not found' });
+    if (p.email === OWNER_EMAIL) return res.status(400).json({ ok: false, error: 'The owner cannot be a moderator' });
+    if (!isAdminProfile(req.profile) && p.id === req.profileId) return res.status(403).json({ ok: false, error: 'You cannot change your own role' });
+    await db.run('UPDATE profiles SET is_moderator = 0 WHERE id = ?', [p.id]);
+    res.json({ ok: true, isModerator: false });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+// Moderator permissions (group-level toggles) — any admin may read them so
+// the Admin Panel can render them; ONLY the owner may change them.
+app.get('/api/mod-permissions', adminAuth, async (req, res) => {
+  try { res.json({ ok: true, permissions: await getModPerms() }); }
+  catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+app.put('/api/mod-permissions', ownerAuth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    for (const k of MOD_PERM_KEYS) {
+      if (b[k] !== undefined) {
+        await db.run('INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', ['mod_perm_' + k, b[k] ? '1' : '0']);
+      }
+    }
+    res.json({ ok: true, permissions: await getModPerms() });
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
 
@@ -683,6 +811,7 @@ function safeProfile(p) {
     id: p.id, accountId: p.account_id, username: p.username, email: p.email,
     phone: p.phone, ign: p.ign, uid: p.uid, avatar: p.avatar || '',
     isAdmin: isAdminProfile(p), isOwner: p.email === OWNER_EMAIL,
+    isModerator: isModeratorProfile(p),
     spunToday: p.last_spin_date === dhakaDateStr(),
     passes: {
       br: p.br_passes || 0, cs: p.cs_passes || 0,
@@ -701,7 +830,7 @@ async function returnPass(profileId, usedPass) {
 
 app.get('/api/me', auth, async (req, res) => {
   const w = await walletFor(req.profileId);
-  res.json({ ok: true, profile: safeProfile(req.profile), wallet: w });
+  res.json({ ok: true, profile: safeProfile(req.profile), wallet: w, permissions: await effectivePerms(req.profile) });
 });
 
 app.post('/api/profile', auth, async (req, res) => {
@@ -734,7 +863,7 @@ app.get('/api/tournaments/admin', adminAuth, async (req, res) => {
   res.json({ ok: true, tournaments: await loadTournaments(true) });
 });
 
-app.post('/api/tournaments', adminAuth, async (req, res) => {
+app.post('/api/tournaments', permAuth('create_match'), async (req, res) => {
   try {
     const b = req.body || {};
     const def = defaultSlots(b.category, b.subcategory);
@@ -757,7 +886,7 @@ app.post('/api/tournaments', adminAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
 
-app.put('/api/tournaments/:id', adminAuth, async (req, res) => {
+app.put('/api/tournaments/:id', permAuth('edit_match'), async (req, res) => {
   try {
     const b = req.body || {};
     const t = await db.get('SELECT * FROM tournaments WHERE id = ?', [req.params.id]);
@@ -786,7 +915,7 @@ app.put('/api/tournaments/:id', adminAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
 
-app.delete('/api/tournaments/:id', adminAuth, async (req, res) => {
+app.delete('/api/tournaments/:id', permAuth('delete_match'), async (req, res) => {
   const t = await db.get('SELECT * FROM tournaments WHERE id = ?', [req.params.id]);
   if (!t) return res.status(404).json({ ok: false, error: 'Match not found' });
   const active = await db.all("SELECT * FROM bookings WHERE tournament_id = ? AND status = 'approved'", [t.id]);
@@ -804,7 +933,7 @@ app.delete('/api/tournaments/:id', adminAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/api/tournaments/:id/status', adminAuth, async (req, res) => {
+app.post('/api/tournaments/:id/status', permAuth('edit_match'), async (req, res) => {
   const { status } = req.body || {};
   if (!['upcoming', 'live', 'closed', 'finished'].includes(status)) {
     return res.status(400).json({ ok: false, error: 'Invalid status' });
@@ -817,7 +946,7 @@ app.post('/api/tournaments/:id/status', adminAuth, async (req, res) => {
 // join while it is paused — and Resume puts it back exactly where it was
 // (upcoming stays upcoming, live stays live). paused_from remembers the
 // status from before the pause; it is NOT a player-facing field.
-app.post('/api/tournaments/:id/pause', adminAuth, async (req, res) => {
+app.post('/api/tournaments/:id/pause', permAuth('pause_match'), async (req, res) => {
   const t = await db.get('SELECT * FROM tournaments WHERE id = ?', [req.params.id]);
   if (!t) return res.status(404).json({ ok: false, error: 'Match not found' });
   if (t.status !== 'upcoming' && t.status !== 'live') {
@@ -827,7 +956,7 @@ app.post('/api/tournaments/:id/pause', adminAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/api/tournaments/:id/resume', adminAuth, async (req, res) => {
+app.post('/api/tournaments/:id/resume', permAuth('pause_match'), async (req, res) => {
   const t = await db.get('SELECT * FROM tournaments WHERE id = ?', [req.params.id]);
   if (!t) return res.status(404).json({ ok: false, error: 'Match not found' });
   if (t.status !== 'paused') {
@@ -838,7 +967,7 @@ app.post('/api/tournaments/:id/resume', adminAuth, async (req, res) => {
   res.json({ ok: true, status: back });
 });
 
-app.post('/api/tournaments/:id/cancel', adminAuth, async (req, res) => {
+app.post('/api/tournaments/:id/cancel', permAuth('delete_match'), async (req, res) => {
   const t = await db.get('SELECT * FROM tournaments WHERE id = ?', [req.params.id]);
   if (!t) return res.status(404).json({ ok: false, error: 'Match not found' });
   const active = await db.all("SELECT * FROM bookings WHERE tournament_id = ? AND status IN ('pending','approved')", [t.id]);
@@ -983,7 +1112,7 @@ app.post('/api/bookings/:id/cancel', auth, async (req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/api/bookings/:id/review', adminAuth, async (req, res) => {
+app.post('/api/bookings/:id/review', permAuth('review_bookings'), async (req, res) => {
   const bk = await db.get('SELECT * FROM bookings WHERE id = ?', [req.params.id]);
   if (!bk) return res.status(404).json({ ok: false, error: 'Booking not found' });
   const approve = !!req.body.approve;
@@ -1074,7 +1203,7 @@ app.post('/api/transfer-balance', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
 
-app.post('/api/transactions/:id/review', adminAuth, async (req, res) => {
+app.post('/api/transactions/:id/review', permAuth('review_payments'), async (req, res) => {
   const tx = await db.get('SELECT * FROM wallet_tx WHERE id = ?', [req.params.id]);
   if (!tx) return res.status(404).json({ ok: false, error: 'Request not found' });
   if (tx.status !== 'pending') return res.status(400).json({ ok: false, error: 'Already reviewed' });
@@ -1083,7 +1212,7 @@ app.post('/api/transactions/:id/review', adminAuth, async (req, res) => {
 });
 
 // ---- results & leaderboard ----
-app.post('/api/results', adminAuth, async (req, res) => {
+app.post('/api/results', permAuth('publish_results'), async (req, res) => {
   try {
     const { tournamentId, profileId, playerName, placement, kills } = req.body || {};
     const t = await db.get('SELECT * FROM tournaments WHERE id = ?', [tournamentId]);
@@ -1124,7 +1253,7 @@ app.post('/api/results', adminAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
 
-app.delete('/api/results/:id', adminAuth, async (req, res) => {
+app.delete('/api/results/:id', permAuth('publish_results'), async (req, res) => {
   const r = await db.get('SELECT * FROM results WHERE id = ?', [req.params.id]);
   if (!r) return res.status(404).json({ ok: false, error: 'Result not found' });
   if (r.prize_paid) return res.status(400).json({ ok: false, error: 'Prize already paid — edit it instead' });
@@ -1204,7 +1333,7 @@ app.get('/api/payment-info', async (req, res) => {
   }
   res.json({ ok: true, ...info });
 });
-app.put('/api/payment-info', adminAuth, async (req, res) => {
+app.put('/api/payment-info', permAuth('app_settings'), async (req, res) => {
   const b = req.body || {};
   for (const [k, v] of Object.entries({ bkash: b.bkashNumber, nagad: b.nagadNumber, rocket: b.rocketNumber, groupLink: b.groupLink })) {
     // Empty / missing field = leave the saved number alone, never wipe it.
