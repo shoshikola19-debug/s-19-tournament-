@@ -2108,7 +2108,14 @@ async function adminHTML() {
     <div class="field"><label>Withdrawal window — to</label><input id="as-wdend" type="time" value="${fmtClockInput((appSettings && appSettings.withdrawEnd) ?? 1290)}"></div>
     <div class="field"><label><input id="as-spin" type="checkbox" style="width:auto" ${appSettings && appSettings.spinEnabled === false ? '' : 'checked'}> Daily Spin enabled</label></div>
     <div id="as-err"></div>
-    <button class="btn" style="margin-top:12px" onclick="saveAppSettings()">Save App Settings</button></div>` : ''}
+    <button class="btn" style="margin-top:12px" onclick="saveAppSettings()">Save App Settings</button>
+    <div class="qr-share">
+      <h3>📱 Share App — QR Code</h3>
+      <p class="muted">Show this QR code to a player — they scan it with their phone camera and the app install page opens.</p>
+      <img class="qr-img" src="/app-qr.png" alt="S_19 Tournament app QR code">
+      <p><b>Scan to install S_19 Tournament</b></p>
+      <button class="btn-ghost btn-sm" onclick="copyAppLink()">s-19-tournament.onrender.com — tap to copy</button>
+    </div></div>` : ''}
   ${(canDo('ban_players') || canDo('manage_roles')) ? `<div class="card"><h3>👥 Players (${players.length})</h3>
   ${players.length ? players.map((p) => {
     const badge = p.isAdmin ? (p.isOwner ? '' : ' · <b class="partner-badge">PARTNER</b>') : (p.isModerator ? ' · <b class="moderator-badge">MODERATOR</b>' : '');
@@ -2259,6 +2266,12 @@ window.saveAppSettings = async () => {
     await loadAppConfig();
     render(); toast('App settings saved');
   } catch (e) { const el = $('#as-err'); if (el) el.innerHTML = `<div class="err">${esc(e.message)}</div>`; else toast(e.message); }
+};
+// Copy the app link — used by the Share App QR section in App Settings.
+window.copyAppLink = () => {
+  const link = 'https://s-19-tournament.onrender.com';
+  if (navigator.clipboard) navigator.clipboard.writeText(link).then(() => toast('App link copied')).catch(() => toast(link));
+  else toast(link);
 };
 window.toggleBan = async (id, banned) => {
   try {
