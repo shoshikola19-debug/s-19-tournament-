@@ -6,6 +6,7 @@ a{color:#ff5b63}
 button{font-family:inherit;cursor:pointer}
 input,select,textarea{font-family:inherit;background:#1e1e1e;border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:12px;width:100%;font-size:16px;-webkit-user-select:text!important;user-select:text!important}
 input:focus,select:focus{outline:2px solid var(--red)}
+input:disabled,select:disabled,textarea:disabled{opacity:.55;cursor:not-allowed}
 .wrap{max-width:520px;margin:0 auto;padding:0 12px 88px}
 .logo{width:56px;height:56px;border-radius:50%;object-fit:cover}
 .logo-sm{width:32px;height:32px;border-radius:50%;object-fit:cover}
