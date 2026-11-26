@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   last_spin_at INTEGER NOT NULL DEFAULT 0,
   banned INTEGER NOT NULL DEFAULT 0,
   is_admin INTEGER NOT NULL DEFAULT 0,
+  is_moderator INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS tournaments (
@@ -164,6 +165,8 @@ async function init() {
     try { await pgPool.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS banned INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
     // Migration: partner admin flag (Make/Remove Partner in the Admin Panel).
     try { await pgPool.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
+    // Migration: moderator flag (Make/Remove Moderator in the Admin Panel).
+    try { await pgPool.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_moderator INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
     // Migration: free pass used on a booking.
     try { await pgPool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS used_pass TEXT NOT NULL DEFAULT ''`); } catch (e) {}
     // Migration: pause/resume — status before a match was paused (resume restores it).
@@ -193,6 +196,8 @@ async function init() {
   try { sqliteDb.exec(`ALTER TABLE profiles ADD COLUMN banned INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
   // Migration: partner admin flag (Make/Remove Partner in the Admin Panel).
   try { sqliteDb.exec(`ALTER TABLE profiles ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
+  // Migration: moderator flag (Make/Remove Moderator in the Admin Panel).
+  try { sqliteDb.exec(`ALTER TABLE profiles ADD COLUMN is_moderator INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
   // Migration: free pass used on a booking.
   try { sqliteDb.exec(`ALTER TABLE bookings ADD COLUMN used_pass TEXT NOT NULL DEFAULT ''`); } catch (e) {}
   // Migration: pause/resume — status before a match was paused (resume restores it).
