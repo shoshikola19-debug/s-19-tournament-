@@ -637,6 +637,56 @@ function req(method, p, body, token) {
     const playersAfterMod = await req('GET', '/api/admin/players', null, regNa.data.token);
     assert.strictEqual(playersAfterMod.status, 403, 'ex-moderator loses admin access');
 
+    // moderator price lock (hard lock, NOT a toggle): even with every
+    // permission ON, a moderator can never change prices, the app name
+    // or payment numbers. Owner/partner prices stay free.
+    const makeModAgain = await req('POST', `/api/admin/players/${plain.id}/make-moderator`, {}, ownerToken2);
+    assert.strictEqual(makeModAgain.status, 200, 'make moderator again for price lock');
+    const putAllOn = await req('PUT', '/api/mod-permissions', { create_match: true, edit_match: true, app_settings: true }, ownerToken2);
+    assert.strictEqual(putAllOn.status, 200, 'owner turns all perms on');
+    // create with crazy prices -> server forces the fixed BR Solo price
+    const modCreatePrice = await req('POST', '/api/tournaments', { title: 'Mod Price Test', category: 'br', subcategory: 'Solo', mode: 'solo', matchType: 'battle_royale', matchDate: FUT, matchTime: '23:00', prizePool: 9999, entryFee: 999, perKillPrize: 999, prize1: 111, prize2: 222, prize3: 333, prize4: 444, prize5: 555 }, regNa.data.token);
+    assert.strictEqual(modCreatePrice.status, 200, 'moderator create with prices: ' + JSON.stringify(modCreatePrice.data));
+    const modCreated = (await req('GET', '/api/tournaments/admin', null, ownerToken2)).data.tournaments.find((t) => t.id === modCreatePrice.data.id);
+    assert.strictEqual(modCreated.prizePool, 800, 'moderator create forces prize 800');
+    assert.strictEqual(modCreated.entryFee, 20, 'moderator create forces fee 20');
+    assert.strictEqual(modCreated.perKillPrize, 10, 'moderator create forces kill 10');
+    assert.deepStrictEqual([modCreated.prize1, modCreated.prize2, modCreated.prize3, modCreated.prize4, modCreated.prize5], [90, 70, 40, 30, 20], 'moderator create forces BR ranks');
+    // create with an unknown category -> 400 (no fixed price exists)
+    const modCreateUnknown = await req('POST', '/api/tournaments', { title: 'Mod Unknown', category: 'br', subcategory: 'Weird', mode: 'solo', matchType: 'battle_royale', matchDate: FUT, matchTime: '23:30' }, regNa.data.token);
+    assert.strictEqual(modCreateUnknown.status, 400, 'moderator create unknown category 400');
+    // edit with crazy prices -> stored prices stay, time still changes
+    const modEdit = await req('PUT', `/api/tournaments/${modCreatePrice.data.id}`, { matchTime: '23:30', prizePool: 1, entryFee: 1, perKillPrize: 1, prize1: 1, prize2: 1, prize3: 1, prize4: 1, prize5: 1 }, regNa.data.token);
+    assert.strictEqual(modEdit.status, 200, 'moderator edit: ' + JSON.stringify(modEdit.data));
+    const afterEdit = (await req('GET', '/api/tournaments/admin', null, ownerToken2)).data.tournaments.find((t) => t.id === modCreatePrice.data.id);
+    assert.strictEqual(afterEdit.prizePool, 800, 'moderator edit keeps prize 800');
+    assert.strictEqual(afterEdit.entryFee, 20, 'moderator edit keeps fee 20');
+    assert.strictEqual(afterEdit.perKillPrize, 10, 'moderator edit keeps kill 10');
+    assert.deepStrictEqual([afterEdit.prize1, afterEdit.prize2, afterEdit.prize3, afterEdit.prize4, afterEdit.prize5], [90, 70, 40, 30, 20], 'moderator edit keeps BR ranks');
+    assert.strictEqual(afterEdit.matchTime, '23:30', 'moderator edit can still change time');
+    // app name: even with app_settings ON, a moderator gets 403
+    const modAppName = await req('PUT', '/api/settings', { appName: 'HACK' }, regNa.data.token);
+    assert.strictEqual(modAppName.status, 403, 'moderator cannot change app name even with app_settings on');
+    // other settings still work for a moderator with app_settings ON
+    const modBanner = await req('PUT', '/api/settings', { bannerTitle: 'Mod Banner' }, regNa.data.token);
+    assert.strictEqual(modBanner.status, 200, 'moderator can change banner with app_settings on');
+    // payment numbers: moderator gets 403 even with app_settings ON
+    const modPay = await req('PUT', '/api/payment-info', { bkashNumber: '01000000000' }, regNa.data.token);
+    assert.strictEqual(modPay.status, 403, 'moderator cannot change payment numbers');
+    const payAfterMod = await req('GET', '/api/payment-info');
+    assert.strictEqual(payAfterMod.data.bkashNumber, '01906502081', 'bKash untouched by moderator');
+    // owner can still set any price freely (create with custom prices)
+    const ownerCreatePrice = await req('POST', '/api/tournaments', { title: 'Owner Price Test', category: 'cs', subcategory: '1v1', mode: 'solo', matchType: 'clash_squad', matchDate: FUT, matchTime: '23:00', prizePool: 500, entryFee: 25, perKillPrize: 5, prize1: 50 }, ownerToken2);
+    assert.strictEqual(ownerCreatePrice.status, 200, 'owner create with custom prices');
+    const ownerCreated = (await req('GET', '/api/tournaments/admin', null, ownerToken2)).data.tournaments.find((t) => t.id === ownerCreatePrice.data.id);
+    assert.strictEqual(ownerCreated.prizePool, 500, 'owner price not forced');
+    assert.strictEqual(ownerCreated.entryFee, 25, 'owner fee not forced');
+    // cleanup: toggles off, moderator removed
+    const putOff2 = await req('PUT', '/api/mod-permissions', { create_match: false, edit_match: false, app_settings: false }, ownerToken2);
+    assert.strictEqual(putOff2.status, 200, 'owner turns toggles off again');
+    const removeMod2 = await req('POST', `/api/admin/players/${plain.id}/remove-moderator`, {}, ownerToken2);
+    assert.strictEqual(removeMod2.status, 200, 'remove moderator again');
+
     // payment info + landing page + manifest
     const pay = await req('GET', '/api/payment-info');
     assert.strictEqual(pay.data.bkashNumber, '01906502081', 'bKash number seeded');
@@ -664,7 +714,7 @@ function req(method, p, body, token) {
     // team boxes, Match Full, tutorial, Remember Me, Forgot, results tabs,
     // support modal + animations must be present in served files
     const appJs = await (await fetch('http://127.0.0.1:3101/app.js')).text();
-    for (const s of ['banner-carousel', 'banner-room-rules', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', '⏸ Paused', '⏸ Pause', '▶ Resume', 'pauseMatch', 'resumeMatch', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'TOPUP BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'Join Telegram Channel', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'joinFlowOf', 'playerNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled', 'App already installed? Uninstall the old S_19 TOUR app first, then tap Download again.', 'Already have the old app? Uninstall it first, then install again to get the latest version.', "profile.isAdmin || profile.isModerator)) items.push(['admin', 'gear', 'Admin']", 'Admin gets a separate Admin tab', 'ad-prize1', 'em-prize1', 'Match Prizes', '1st Prize', '2nd Prize', 'prize1', 'avatar-ring', 'avatar-img', 'avatar-cam', 'uploadAvatar', 'copyS19Id', 'profile-tiles', 'profile-tile', 'menu-list', 'menu-row', 'BDT', 'Edit Profile', 'Daily Spin', 'All Rules', 'Leaderboard', 'wallet-hero', 'Available Balance', 'DEPOSITED', 'WINNING', 'Transfer Balance', 'openTransfer', 'transfer-balance', 'Transfer to Deposit', 'BKASH &amp; NAGAD', 'Proceed to Payment', '10 - 1000', 'minimum of 10 Taka', 'maximum of 1000', 'Transaction History', 'openTxHistory', 'How to add money?', 'openHowToAddMoney', 'How to join a match?', 'How to withdraw?', 'openHowToWithdraw', 'Nagad number not added yet', 'Nagad number will be added later', 'depPickGateway', 'depPickMethod', 'depCheck', 'depStep2', 'match-head', 'match-date', 'fmtDateTime', 'tile-ic', 'reg-row', 'join-btn', 'tutorial-pill', 'ad-slots', 'em-slots', 'Total Slots', 'adSlotsDefault', 'SLOT_DEFAULTS', 'Email / Username / Phone', 'Email, username or phone number', 'already exists', 'already taken', 'Send Code', 'Resend Code', 'Enter Reset Code', 'forgot-password/request', 'forgot-password/verify', 'Password Reset Requests', 'reset-requests', 'cancelReset', 'doForgotSend', 'doForgotVerify', 'topupHTML', 'topupSoon', 'Top-up coming soon', 'FREE FIRE TOPUP BD SERVER', 'INDONESIA SERVER', 'UID TOPUP', 'Level Up Pass', 'Weekly Lite', 'Weekly & Monthly', 'topup-grid', 'topup-card', 'topup-banner', 'TOPUP_PACKS_BD', 'TOPUP_PACKS_ID', 'daily-spin', 'spin-wheel', 'Spin Now', 'Next Spin in', 'Use free pass', 'SPIN_SEGMENTS', 'openSpin', 'doSpin', 'passForMatch', 'spin-counters', 'spin-head', 'spin-hub', 'spin-countdown', 'You won a free', 'Better luck tomorrow', 'spinState', 'usedPass', 'Payment Requests', 'admin/transactions', 'reviewTx', 'payreq', 'Verify this TrxID', 'Fake TrxIDs must be rejected', 'I verified this transaction', 'toggleApproveBtn', 'payInfo.bkashNumber', 'payInfo.nagadNumber', 'payInfo.rocketNumber', 'App Settings', 'saveAppSettings', 'Players', 'toggleBan', 'togglePartner', 'Make Partner', 'Remove Partner', 'PARTNER', 'partner-badge', 'promote', 'demote', 'app-config', 'loadAppConfig', 'noticeRules', 'withdrawInfoText', 'Daily Spin is currently disabled', 'Daily Spin is off', 'togglePw', 'pw-wrap', 'pw-eye', 'err.status', "return 'network'", 'unauthorized', 'Make Moderator', 'Remove Moderator', 'MODERATOR', 'moderator-badge', 'Moderator Permissions', 'toggleModerator', 'saveModPerms', 'mod-permissions', 'make-moderator', 'remove-moderator', 'roleBadge', 'canDo', 'myPerms', 'isModerator']) {
+    for (const s of ['banner-carousel', 'banner-room-rules', 'cat-card', 'chat-fab', 'bell-btn', 'step-dot', 'team-box', 'Match Full', '⏸ Paused', '⏸ Pause', '▶ Resume', 'pauseMatch', 'resumeMatch', 'openTutorial', 'Remember Me', 'Forgot Password', 'resultTab', 'openSupport', 'VERSION 1.0.0', 'live-badge', 'TOPUP BALANCE', 'TOTAL WON', 'goAuth', 'Switch Account', 'Logged out', 'isStandalone', 'cat-arrow', 'Join Telegram Channel', 'backHome', 'openCategory', 'openSub', 'sub-card', 'shield-tile', 'shield-label', 'help-contact', 'Need any Help', 'Diamond Topup', 'page-head', 'backToHome', 'backToCategory', 'joinFlowOf', 'playerNames', 'Matches Live', 'Clash Squad', 'Lone Wolf 1V1', 'Lose To Win', 'BR E-Sports PRO League', 'dl-btn', 'hadToken', '5000 - (Date.now() - splashStart)', '__s19AppInstalled', 'App already installed? Uninstall the old S_19 TOUR app first, then tap Download again.', 'Already have the old app? Uninstall it first, then install again to get the latest version.', "profile.isAdmin || profile.isModerator)) items.push(['admin', 'gear', 'Admin']", 'Admin gets a separate Admin tab', 'ad-prize1', 'em-prize1', 'Match Prizes', '1st Prize', '2nd Prize', 'prize1', 'avatar-ring', 'avatar-img', 'avatar-cam', 'uploadAvatar', 'copyS19Id', 'profile-tiles', 'profile-tile', 'menu-list', 'menu-row', 'BDT', 'Edit Profile', 'Daily Spin', 'All Rules', 'Leaderboard', 'wallet-hero', 'Available Balance', 'DEPOSITED', 'WINNING', 'Transfer Balance', 'openTransfer', 'transfer-balance', 'Transfer to Deposit', 'BKASH &amp; NAGAD', 'Proceed to Payment', '10 - 1000', 'minimum of 10 Taka', 'maximum of 1000', 'Transaction History', 'openTxHistory', 'How to add money?', 'openHowToAddMoney', 'How to join a match?', 'How to withdraw?', 'openHowToWithdraw', 'Nagad number not added yet', 'Nagad number will be added later', 'depPickGateway', 'depPickMethod', 'depCheck', 'depStep2', 'match-head', 'match-date', 'fmtDateTime', 'tile-ic', 'reg-row', 'join-btn', 'tutorial-pill', 'ad-slots', 'em-slots', 'Total Slots', 'adSlotsDefault', 'SLOT_DEFAULTS', 'Email / Username / Phone', 'Email, username or phone number', 'already exists', 'already taken', 'Send Code', 'Resend Code', 'Enter Reset Code', 'forgot-password/request', 'forgot-password/verify', 'Password Reset Requests', 'reset-requests', 'cancelReset', 'doForgotSend', 'doForgotVerify', 'topupHTML', 'topupSoon', 'Top-up coming soon', 'FREE FIRE TOPUP BD SERVER', 'INDONESIA SERVER', 'UID TOPUP', 'Level Up Pass', 'Weekly Lite', 'Weekly & Monthly', 'topup-grid', 'topup-card', 'topup-banner', 'TOPUP_PACKS_BD', 'TOPUP_PACKS_ID', 'daily-spin', 'spin-wheel', 'Spin Now', 'Next Spin in', 'Use free pass', 'SPIN_SEGMENTS', 'openSpin', 'doSpin', 'passForMatch', 'spin-counters', 'spin-head', 'spin-hub', 'spin-countdown', 'You won a free', 'Better luck tomorrow', 'spinState', 'usedPass', 'Payment Requests', 'admin/transactions', 'reviewTx', 'payreq', 'Verify this TrxID', 'Fake TrxIDs must be rejected', 'I verified this transaction', 'toggleApproveBtn', 'payInfo.bkashNumber', 'payInfo.nagadNumber', 'payInfo.rocketNumber', 'App Settings', 'saveAppSettings', 'Players', 'toggleBan', 'togglePartner', 'Make Partner', 'Remove Partner', 'PARTNER', 'partner-badge', 'promote', 'demote', 'app-config', 'loadAppConfig', 'noticeRules', 'withdrawInfoText', 'Daily Spin is currently disabled', 'Daily Spin is off', 'togglePw', 'pw-wrap', 'pw-eye', 'err.status', "return 'network'", 'unauthorized', 'Make Moderator', 'Remove Moderator', 'MODERATOR', 'moderator-badge', 'Moderator Permissions', 'toggleModerator', 'saveModPerms', 'mod-permissions', 'make-moderator', 'remove-moderator', 'roleBadge', 'canDo', 'myPerms', 'isModerator', 'FIXED_PRICES', 'fixedPriceFor', 'fillFixedPrice', 'Prices are fixed']) {
       assert.ok(appJs.includes(s), 'app.js missing: ' + s);
     }
     // Download button is always rendered on the landing page now — it is
@@ -697,7 +747,7 @@ function req(method, p, body, token) {
     const man = await fetch('http://127.0.0.1:3101/manifest.webmanifest');
     assert.strictEqual(man.status, 200, 'manifest serves');
     const sw = await (await fetch('http://127.0.0.1:3101/sw.js')).text();
-    assert.ok(sw.includes('s19-tournament-v20'), 'sw cache bumped to v20 so phones fetch the new shell');
+    assert.ok(sw.includes('s19-tournament-v21'), 'sw cache bumped to v21 so phones fetch the new shell');
     const idx = await (await fetch('http://127.0.0.1:3101/')).text();
     assert.ok(idx.includes('appinstalled'), 'index tracks install state (Download button stays visible)');
     const icon = await fetch('http://127.0.0.1:3101/icon-512.png');
