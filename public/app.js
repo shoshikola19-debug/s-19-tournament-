@@ -1221,6 +1221,22 @@ async function loadTournaments() {
 
 // ---------- play / matches ----------
 const SUBS = { br: ['Solo', 'Duo', 'Esports PRO'], cs: ['4v4', '1v1', 'Headshot Only'], lw: ['1v1', '2v2', 'Lose To Win', 'Headshot Only'] };
+// Fixed ZVY prices (mirror of the server table) — shown in the form for
+// moderators, whose price fields are locked. The server enforces the lock;
+// these numbers are display-only here.
+const FIXED_PRICES = {
+  'br/Solo': { prize: 800, fee: 20, kill: 10, ranks: [90, 70, 40, 30, 20] },
+  'br/Duo': { prize: 800, fee: 20, kill: 10, ranks: [90, 70, 40, 30, 20] },
+  'br/Esports PRO': { prize: 560, fee: 15, kill: 0, ranks: [0, 0, 0, 0, 0] },
+  'cs/4v4': { prize: 320, fee: 50, kill: 0, ranks: [0, 0, 0, 0, 0] },
+  'cs/1v1': { prize: 110, fee: 70, kill: 0, ranks: [0, 0, 0, 0, 0] },
+  'cs/Headshot Only': { prize: 200, fee: 60, kill: 0, ranks: [0, 0, 0, 0, 0] },
+  'lw/1v1': { prize: 110, fee: 70, kill: 0, ranks: [0, 0, 0, 0, 0] },
+  'lw/2v2': { prize: 160, fee: 50, kill: 0, ranks: [0, 0, 0, 0, 0] },
+  'lw/Lose To Win': { prize: 100, fee: 60, kill: 0, ranks: [0, 0, 0, 0, 0] },
+  'lw/Headshot Only': { prize: 200, fee: 60, kill: 0, ranks: [0, 0, 0, 0, 0] },
+};
+function fixedPriceFor(cat, sub) { return FIXED_PRICES[cat + '/' + sub] || null; }
 const LW1V1_RULES = ['সন্দেহজনক User কে কোনো নোটিশ ছাড়াই BAN করা হবে।', 'ম্যাচে অ্যাডমিন পান দেওয়া থেকে শুরু করে ম্যাচ স্টার্ট হওয়া পর্যন্ত ভিডিও করা লাগবে এবং অ্যাডমিন যদি ভিডিও চায় দেখাতে হবে।', 'জয়েন করার সময় আপনার নাম দিয়ে জয়েন করলে কিক দেওয়া হবে, কোনো প্রকার রিফান্ড এবং Winning Reward দেওয়া হবে না।', '৫০ লেভেলের কম Free Fire আইডি দিয়ে ম্যাচ জয়েন করলে, ম্যাচ থেকে কিক দেওয়া হলে কোনো প্রকার REFUND দেওয়া হবে না।', 'ম্যাচ জয়েন করার পর কোনো ধরনের রিফান্ড করা হবে না।', 'কোনো প্লেয়ার অন্য অ্যাপ থেকে ব্যান থাকলে আমাদের অ্যাপ থেকেও ব্যান করা হবে।', 'ম্যাচ সময়ের ৪/৫ মিনিট আগে Room-এ ঢুকতে হবে, ID ও Password পেয়ে যাবেন।', 'ম্যাচ শুরু হওয়ার ২/৩ মিনিট আগে কাস্টম জয়েন করতে না পারলে কোনো প্রকার Refund পাবেন না।', 'আমাদের অ্যাপে Notification-এ Room ID ও Password দেওয়া হয় না।', 'ম্যাচে রেকর্ড ভিডিও এবং Screenshot দিতে না পারলে সে ম্যাচে কোনো প্রকার Refund অথবা Reward দেওয়া হবে না।', 'ম্যাচ জিতলে কোনো সমস্যা হলে ম্যাচ শেষ হওয়ার সর্বোচ্চ ৫/১০ মিনিটের মধ্যে জানাতে হবে।', '১ভি১ ম্যাচে জয়েন করার পর আর কোনো Refund-এর ব্যবস্থা নেই।', '১ভি১ ম্যাচে কোনো ধরনের Teaming, ইমোট ব্যবহার, লাফালাফি, Zone অথবা Bomb মেরে নিজে মারা যাওয়া সম্পূর্ণ নিষিদ্ধ। এমনটি করলে Entry Fee বাজেয়াপ্ত করা হবে এবং ম্যাচটি বাতিল করা হবে।', '১ভি১ ম্যাচে শুধুমাত্র নির্ধারিত দুইজন প্লেয়ার খেলবে। অন্য কোনো প্লেয়ার অংশগ্রহণ করতে পারবে না।', 'ম্যাচ "WINNINGS"-এর টাকা ম্যাচ শেষ হওয়ার ৩০ মিনিটের মধ্যে Account-এ Add দেওয়া হবে।', 'যেকোনো সমস্যা বা সহযোগিতার ক্ষেত্রে আমাদের SUPPORT-এ যোগাযোগ করতে হবে।', '🔴 "S_19 TOURNAMENT ADMIN"-এর সিদ্ধান্তই চূড়ান্ত সিদ্ধান্ত 🔴'];
 
 function topbarHTML() {
@@ -2024,6 +2040,11 @@ window.switchAccount = () => { clearToken(); profile = null; wallet = null; view
 async function adminHTML() {
   const d = await api('/api/tournaments/admin');
   adminTournaments = d.tournaments;
+  // Price lock: a moderator can never change prices — the fixed ZVY price
+  // for the category is applied by the server. The form shows it locked.
+  const priceLocked = !!(profile && profile.isModerator);
+  const plock = priceLocked ? ' disabled' : '';
+  const plockNote = priceLocked ? '<p class="muted">🔒 Prices are fixed — only the owner can change them. The fixed price for this category is applied automatically.</p>' : '';
   let resets = [];
   try { resets = (await api('/api/admin/reset-requests')).requests || []; } catch (e) {}
   let pendTx = [];
@@ -2044,16 +2065,17 @@ async function adminHTML() {
     <div class="field"><label>Subcategory</label><select id="ad-sub" onchange="adSlotsDefault()"></select></div>
     <div class="field"><label>Date</label><input id="ad-date" type="date" value="2026-11-20"></div>
     <div class="field"><label>Time</label><input id="ad-time" type="time" value="18:00"></div>
-    <div class="field"><label>Prize (TK)</label><input id="ad-prize" type="number" value="800"></div>
-    <div class="field"><label>Entry fee (TK)</label><input id="ad-fee" type="number" value="20"></div>
-    <div class="field"><label>Per kill (TK)</label><input id="ad-kill" type="number" value="10"></div>
+    <div class="field"><label>Prize (TK)</label><input id="ad-prize" type="number" value="800"${plock}></div>
+    <div class="field"><label>Entry fee (TK)</label><input id="ad-fee" type="number" value="20"${plock}></div>
+    <div class="field"><label>Per kill (TK)</label><input id="ad-kill" type="number" value="10"${plock}></div>
+    ${plockNote}
     <div class="field"><label>Total Slots (2–100)</label><input id="ad-slots" type="number" min="2" max="100" value="48"></div>
     <h4 style="margin-top:14px">🏆 Match Prizes (1st – 5th)</h4>
-    <div class="field"><label>1st Prize (TK)</label><input id="ad-prize1" type="number" value="90"></div>
-    <div class="field"><label>2nd Prize (TK)</label><input id="ad-prize2" type="number" value="70"></div>
-    <div class="field"><label>3rd Prize (TK)</label><input id="ad-prize3" type="number" value="40"></div>
-    <div class="field"><label>4th Prize (TK)</label><input id="ad-prize4" type="number" value="30"></div>
-    <div class="field"><label>5th Prize (TK)</label><input id="ad-prize5" type="number" value="20"></div>
+    <div class="field"><label>1st Prize (TK)</label><input id="ad-prize1" type="number" value="90"${plock}></div>
+    <div class="field"><label>2nd Prize (TK)</label><input id="ad-prize2" type="number" value="70"${plock}></div>
+    <div class="field"><label>3rd Prize (TK)</label><input id="ad-prize3" type="number" value="40"${plock}></div>
+    <div class="field"><label>4th Prize (TK)</label><input id="ad-prize4" type="number" value="30"${plock}></div>
+    <div class="field"><label>5th Prize (TK)</label><input id="ad-prize5" type="number" value="20"${plock}></div>
     <div class="field"><label>Room ID</label><input id="ad-roomid" placeholder="optional"></div>
     <div class="field"><label>Room password</label><input id="ad-roompw" placeholder="optional"></div>
     <div id="ad-err"></div>
@@ -2077,7 +2099,7 @@ async function adminHTML() {
     : '<p class="muted">No pending payment requests.</p>'}
   <p class="muted">Approve adds the money to the player's Deposit Balance; Reject adds nothing.</p></div>` : ''}
   ${canDo('app_settings') ? `<div class="card"><h3>⚙️ App Settings</h3>
-    <div class="field"><label>App name</label><input id="as-name" maxlength="60" value="${esc((appSettings && appSettings.appName) || 'S_19 TOURNAMENT')}"></div>
+    ${profile.isModerator ? '' : `<div class="field"><label>App name</label><input id="as-name" maxlength="60" value="${esc((appSettings && appSettings.appName) || 'S_19 TOURNAMENT')}"></div>`}
     <div class="field"><label>Welcome Notice rules (one rule per line)</label><textarea id="as-notice" rows="6">${esc((appSettings && appSettings.noticeRules) || '')}</textarea></div>
     <div class="field"><label>Home banner title</label><input id="as-bannertitle" maxlength="120" value="${esc((appSettings && appSettings.bannerTitle) || '')}"></div>
     <div class="field"><label>Home banner subtitle</label><input id="as-bannersub" maxlength="200" value="${esc((appSettings && appSettings.bannerSubtitle) || '')}"></div>
@@ -2137,7 +2159,7 @@ async function adminHTML() {
   ${resets.length ? resets.map((r) => `<div class="kv"><span>${esc(r.contact)} · ${esc(r.channel)} · ${r.attemptsLeft} tries left · expires ${new Date(r.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${r.code ? ` · <b>Code: ${esc(r.code)}</b>` : ' · code emailed'}</span><button class="btn-ghost btn-sm" onclick="cancelReset(${r.id})">Cancel</button></div>`).join('')
     : '<p class="muted">No pending reset requests.</p>'}
   <p class="muted">Codes are emailed when SMTP is set up; otherwise the code shows here only for the admin, so Support can share it with the player.</p></div>` : ''}
-  ${canDo('app_settings') ? `<div class="card"><h3>Payment settings</h3>
+  ${profile.isAdmin ? `<div class="card"><h3>Payment settings</h3>
     <div class="field"><label>bKash number</label><input id="pay-bkash" placeholder="01XXXXXXXXX" value="${esc(payInfo.bkashNumber || '')}"></div>
     <div class="field"><label>Nagad number</label><input id="pay-nagad" placeholder="01XXXXXXXXX" value="${esc(payInfo.nagadNumber || '')}"></div>
     <div class="field"><label>Rocket number</label><input id="pay-rocket" placeholder="01XXXXXXXXX" value="${esc(payInfo.rocketNumber || '')}"></div>
@@ -2160,12 +2182,24 @@ window.adSub = () => {
   for (let i = 1; i <= 5; i++) { const el = $('#ad-prize' + i); if (el) el.value = defs[i - 1]; }
   adSlotsDefault();
 };
+// Price lock (moderators): show the fixed ZVY price for the picked
+// category/subcategory in the locked fields, so what is displayed is
+// exactly what the server will apply.
+window.fillFixedPrice = () => {
+  if (!(profile && profile.isModerator)) return;
+  const fp = fixedPriceFor($('#ad-cat').value, $('#ad-sub').value);
+  if (!fp) return;
+  const set = (id, v) => { const el = $(id); if (el) el.value = v; };
+  set('#ad-prize', fp.prize); set('#ad-fee', fp.fee); set('#ad-kill', fp.kill);
+  fp.ranks.forEach((v, i) => set('#ad-prize' + (i + 1), v));
+};
 // Default slot count for the picked category/subcategory — the admin can
 // type any number 2–100 over it. Same defaults as the server.
 const SLOT_DEFAULTS = { 'br/Solo': 48, 'br/Duo': 50, 'br/Esports PRO': 50, 'cs/4v4': 8, 'cs/1v1': 2, 'cs/Headshot Only': 8, 'lw/1v1': 2, 'lw/2v2': 4, 'lw/Lose To Win': 2, 'lw/Headshot Only': 8 };
 window.adSlotsDefault = () => {
   const el = $('#ad-slots');
   if (el) el.value = SLOT_DEFAULTS[$('#ad-cat').value + '/' + $('#ad-sub').value] ?? 8;
+  fillFixedPrice();
 };
 window.createMatch = async () => {
   try {
@@ -2207,8 +2241,9 @@ window.reviewTx = async (id, ok) => {
 };
 window.saveAppSettings = async () => {
   try {
-    const d = await api('/api/settings', { method: 'PUT', body: JSON.stringify({
-      appName: $('#as-name').value.trim(),
+    // Price/name lock: moderators have no App name field — never send it
+    // (the server also 403s an appName change from a moderator).
+    const body = {
       noticeRules: $('#as-notice').value,
       bannerTitle: $('#as-bannertitle').value.trim(),
       bannerSubtitle: $('#as-bannersub').value.trim(),
@@ -2216,7 +2251,10 @@ window.saveAppSettings = async () => {
       withdrawStart: clockInputToMins($('#as-wdstart').value),
       withdrawEnd: clockInputToMins($('#as-wdend').value),
       spinEnabled: $('#as-spin').checked,
-    }) });
+    };
+    const nameEl = $('#as-name');
+    if (nameEl) body.appName = nameEl.value.trim();
+    const d = await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
     appConfig = d.settings || null;
     await loadAppConfig();
     render(); toast('App settings saved');
@@ -2254,19 +2292,24 @@ window.saveModPerms = async () => {
 window.editMatch = (id) => {
   const m = adminTournaments.find((x) => x.id === id);
   const booked = (m.bookings || []).filter((b) => b.status === 'pending' || b.status === 'approved').length;
+  // Price lock: a moderator can never change prices — the fields are
+  // locked here and the server ignores them on save.
+  const plock = (profile && profile.isModerator) ? ' disabled' : '';
+  const plockNote = (profile && profile.isModerator) ? '<p class="muted">🔒 Prices are fixed — only the owner can change them.</p>' : '';
   openModal(`<h2>Edit Match #${id}</h2>
   <div class="field"><label>Date</label><input id="em-date" type="date" value="${m.matchDate}"></div>
   <div class="field"><label>Time</label><input id="em-time" type="time" value="${m.matchTime}"></div>
-  <div class="field"><label>Prize</label><input id="em-prize" type="number" value="${m.prizePool}"></div>
-  <div class="field"><label>Entry fee</label><input id="em-fee" type="number" value="${m.entryFee}"></div>
+  <div class="field"><label>Prize</label><input id="em-prize" type="number" value="${m.prizePool}"${plock}></div>
+  <div class="field"><label>Entry fee</label><input id="em-fee" type="number" value="${m.entryFee}"${plock}></div>
+  ${plockNote}
   <div class="field"><label>Total Slots (2–100)</label><input id="em-slots" type="number" min="2" max="100" value="${m.totalSlots}"></div>
   ${booked ? `<p class="muted">⚠ ${booked} slot(s) already booked — slots cannot go below ${booked}.</p>` : ''}
   <h4 style="margin-top:14px">🏆 Match Prizes (1st – 5th)</h4>
-  <div class="field"><label>1st Prize (TK)</label><input id="em-prize1" type="number" value="${m.prize1 || ''}"></div>
-  <div class="field"><label>2nd Prize (TK)</label><input id="em-prize2" type="number" value="${m.prize2 || ''}"></div>
-  <div class="field"><label>3rd Prize (TK)</label><input id="em-prize3" type="number" value="${m.prize3 || ''}"></div>
-  <div class="field"><label>4th Prize (TK)</label><input id="em-prize4" type="number" value="${m.prize4 || ''}"></div>
-  <div class="field"><label>5th Prize (TK)</label><input id="em-prize5" type="number" value="${m.prize5 || ''}"></div>
+  <div class="field"><label>1st Prize (TK)</label><input id="em-prize1" type="number" value="${m.prize1 || ''}"${plock}></div>
+  <div class="field"><label>2nd Prize (TK)</label><input id="em-prize2" type="number" value="${m.prize2 || ''}"${plock}></div>
+  <div class="field"><label>3rd Prize (TK)</label><input id="em-prize3" type="number" value="${m.prize3 || ''}"${plock}></div>
+  <div class="field"><label>4th Prize (TK)</label><input id="em-prize4" type="number" value="${m.prize4 || ''}"${plock}></div>
+  <div class="field"><label>5th Prize (TK)</label><input id="em-prize5" type="number" value="${m.prize5 || ''}"${plock}></div>
   <div class="field"><label>Room ID</label><input id="em-roomid" value="${esc(m.roomId)}"></div>
   <div class="field"><label>Room password</label><input id="em-roompw" value="${esc(m.roomPassword)}"></div>
   <div id="em-err"></div>
